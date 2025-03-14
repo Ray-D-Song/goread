@@ -20,11 +20,14 @@ type HTMLParser struct {
 	isInde     bool
 	isBull     bool
 	isPref     bool
+	isCode     bool   // Flag indicating if we're inside a code block
+	codeType   string // Code type (language)
 	isHidden   bool
 	headIDs    map[int]bool
 	indeIDs    map[int]bool
 	bullIDs    map[int]bool
 	prefIDs    map[int]bool
+	codeIDs    map[int]bool // Mark which lines are code
 	currentTag string
 	buffer     string
 }
@@ -38,6 +41,7 @@ func NewHTMLParser() *HTMLParser {
 		indeIDs: make(map[int]bool),
 		bullIDs: make(map[int]bool),
 		prefIDs: make(map[int]bool),
+		codeIDs: make(map[int]bool),
 	}
 }
 
@@ -74,7 +78,7 @@ func (p *HTMLParser) handleStartTag(n *html.Node) {
 	tag := n.Data
 	p.currentTag = tag
 
-	// Check if this is a heading tag (h1-h6)
+	// Check if this is a heading tag (h1-6)
 	isHeading := regexp.MustCompile(`^h[1-6]$`).MatchString(tag)
 
 	if isHeading {
@@ -83,6 +87,33 @@ func (p *HTMLParser) handleStartTag(n *html.Node) {
 		p.isInde = true
 	} else if tag == "pre" {
 		p.isPref = true
+		// For all pre tags, we'll treat them as code blocks
+		p.isCode = true
+
+		// Check if there's a class attribute to determine code type
+		for _, attr := range n.Attr {
+			if attr.Key == "class" {
+				// Check if it contains language identifier like "language-go", "lang-python", etc.
+				langMatch := regexp.MustCompile(`(?:language|lang)-(\w+)`).FindStringSubmatch(attr.Val)
+				if len(langMatch) > 1 {
+					p.codeType = langMatch[1]
+				}
+			}
+		}
+	} else if tag == "code" {
+		// If already inside a pre tag, this is a code block
+		if p.isPref {
+			p.isCode = true
+			// Check if there's a class attribute to determine code type
+			for _, attr := range n.Attr {
+				if attr.Key == "class" {
+					langMatch := regexp.MustCompile(`(?:language|lang)-(\w+)`).FindStringSubmatch(attr.Val)
+					if len(langMatch) > 1 {
+						p.codeType = langMatch[1]
+					}
+				}
+			}
+		}
 	} else if tag == "li" {
 		p.isBull = true
 	} else if tag == "script" || tag == "style" || tag == "head" {
@@ -140,6 +171,12 @@ func (p *HTMLParser) handleEndTag(n *html.Node) {
 			p.text = append(p.text, "")
 		}
 		p.isPref = false
+		p.isCode = false
+		p.codeType = ""
+	} else if tag == "code" {
+		if p.isPref && p.isCode {
+			p.isCode = false
+		}
 	} else if tag == "li" {
 		if p.text[len(p.text)-1] != "" {
 			p.text = append(p.text, "")
@@ -189,6 +226,9 @@ func (p *HTMLParser) handleText(data string) {
 			p.indeIDs[lineIndex] = true
 		} else if p.isPref {
 			p.prefIDs[lineIndex] = true
+			if p.isCode {
+				p.codeIDs[lineIndex] = true
+			}
 		}
 	}
 }
@@ -230,7 +270,12 @@ func (p *HTMLParser) FormatLines(width int) []string {
 			formattedLines = append(formattedLines, "")
 		} else if p.prefIDs[i] {
 			// Format as preformatted text
-			formattedLines = append(formattedLines, formatPreformattedLine(line, width-6, "   "))
+			if p.codeIDs[i] {
+				// If it's code, add syntax highlighting
+				formattedLines = append(formattedLines, formatCodeLine(line, width-6, "   ", p.codeType))
+			} else {
+				formattedLines = append(formattedLines, formatPreformattedLine(line, width-6, "   "))
+			}
 			formattedLines = append(formattedLines, "")
 		} else {
 			// Wrap the line to the given width
@@ -362,6 +407,162 @@ func formatWrappedLine(line string, width int) []string {
 	}
 
 	return result
+}
+
+// formatCodeLine formats a code line with syntax highlighting
+func formatCodeLine(line string, width int, indent string, codeType string) string {
+	if line == "" {
+		return ""
+	}
+
+	// Apply syntax highlighting
+	highlightedLine := applyCodeHighlighting(line, codeType)
+
+	// Handle line wrapping
+	var result []string
+	lines := strings.Split(highlightedLine, "\n")
+
+	for _, l := range lines {
+		// Since we've added color markers, we can't simply split by words
+		// Simplified approach: only wrap when exceeding width
+		if len(stripColorCodes(l)) <= width {
+			result = append(result, indent+l)
+		} else {
+			// For long lines, simply append as is (this might break color markers)
+			// In a real application, more sophisticated handling would be needed
+			result = append(result, indent+l)
+		}
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// stripColorCodes removes tview color codes to calculate actual text length
+func stripColorCodes(text string) string {
+	re := regexp.MustCompile(`\[[^]]*\]`)
+	return re.ReplaceAllString(text, "")
+}
+
+// applyCodeHighlighting applies syntax highlighting based on code type
+func applyCodeHighlighting(code string, codeType string) string {
+	// Use universal highlighting for all code blocks
+	return highlightUniversal(code)
+}
+
+// highlightUniversal adds highlighting for common programming language constructs
+func highlightUniversal(code string) string {
+	// Use a simpler approach to avoid tview color code issues
+
+	// Split the code into tokens (words, symbols, etc.)
+	tokens := tokenizeCode(code)
+
+	// Classify and color each token
+	var result strings.Builder
+	for _, token := range tokens {
+		result.WriteString(colorizeToken(token))
+	}
+
+	return result.String()
+}
+
+// tokenizeCode splits code into tokens for highlighting
+func tokenizeCode(code string) []string {
+	// Define a regex pattern to match different code elements
+	pattern := regexp.MustCompile(`("[^"]*")|('[^']*')|(\` + "`" + `[^` + "`" + `]*` + "`" + `)|(//.*)|(#.*)|(--.*)|([\d.]+)|([a-zA-Z_]\w*)|(\S)|\s+`)
+
+	matches := pattern.FindAllStringIndex(code, -1)
+	var tokens []string
+
+	for _, match := range matches {
+		start, end := match[0], match[1]
+		tokens = append(tokens, code[start:end])
+	}
+
+	return tokens
+}
+
+// colorizeToken applies color to a token based on its type
+func colorizeToken(token string) string {
+	// Check for strings (double quotes, single quotes, backticks)
+	if (strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"")) ||
+		(strings.HasPrefix(token, "'") && strings.HasSuffix(token, "'")) ||
+		(strings.HasPrefix(token, "`") && strings.HasSuffix(token, "`")) {
+		return "[#FFFF00]" + token + "[-]"
+	}
+
+	// Check for comments
+	if strings.HasPrefix(token, "//") || strings.HasPrefix(token, "#") || strings.HasPrefix(token, "--") {
+		return "[#00FF00]" + token + "[-]"
+	}
+
+	// Check for numbers
+	if regexp.MustCompile(`^\d+(\.\d+)?$`).MatchString(token) {
+		return "[#FF8800]" + token + "[-]"
+	}
+
+	// Check for keywords
+	if isDataType(token) {
+		return "[#00FFFF]" + token + "[-]"
+	}
+
+	if isControlFlow(token) {
+		return "[#FF00FF]" + token + "[-]"
+	}
+
+	if isOtherKeyword(token) {
+		return "[#0088FF]" + token + "[-]"
+	}
+
+	// Return the token as is if it doesn't match any category
+	return token
+}
+
+// isDataType checks if a token is a data type keyword
+func isDataType(token string) bool {
+	dataTypes := map[string]bool{
+		"int": true, "float": true, "double": true, "char": true, "string": true,
+		"bool": true, "boolean": true, "byte": true, "long": true, "short": true,
+		"void": true, "var": true, "let": true, "const": true, "auto": true,
+		"static": true, "final": true, "unsigned": true, "signed": true, "uint": true,
+		"int8": true, "int16": true, "int32": true, "int64": true, "uint8": true,
+		"uint16": true, "uint32": true, "uint64": true, "float32": true, "float64": true,
+		"object": true, "array": true, "map": true, "set": true, "list": true,
+		"vector": true, "dict": true, "tuple": true, "struct": true, "class": true,
+		"interface": true, "enum": true, "union": true, "type": true,
+	}
+
+	return dataTypes[token]
+}
+
+// isControlFlow checks if a token is a control flow keyword
+func isControlFlow(token string) bool {
+	controlFlow := map[string]bool{
+		"if": true, "else": true, "elif": true, "switch": true, "case": true,
+		"default": true, "for": true, "while": true, "do": true, "foreach": true,
+		"in": true, "of": true, "break": true, "continue": true, "return": true,
+		"yield": true, "goto": true, "try": true, "catch": true, "except": true,
+		"finally": true, "throw": true, "throws": true, "raise": true,
+	}
+
+	return controlFlow[token]
+}
+
+// isOtherKeyword checks if a token is another common keyword
+func isOtherKeyword(token string) bool {
+	otherKeywords := map[string]bool{
+		"function": true, "func": true, "def": true, "fn": true, "method": true,
+		"import": true, "include": true, "require": true, "from": true, "export": true,
+		"package": true, "namespace": true, "module": true, "using": true, "extends": true,
+		"implements": true, "override": true, "virtual": true, "abstract": true,
+		"public": true, "private": true, "protected": true, "internal": true,
+		"async": true, "await": true, "new": true, "delete": true, "this": true,
+		"self": true, "super": true, "base": true, "null": true, "nil": true,
+		"None": true, "true": true, "false": true, "True": true, "False": true,
+		"and": true, "or": true, "not": true, "instanceof": true, "typeof": true,
+		"sizeof": true, "lambda": true,
+	}
+
+	return otherKeywords[token]
 }
 
 // DumpHTML dumps the HTML content as plain text

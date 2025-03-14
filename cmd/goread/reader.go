@@ -55,13 +55,13 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				r.clearSearchHighlights()
 				return nil
 			}
-			r.saveState(r.CurrentChapter, width, pos, pctg)
+			r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
 			r.UI.App.Stop()
 			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
-				r.saveState(r.CurrentChapter, width, pos, pctg)
+				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
 				r.UI.App.Stop()
 				return nil
 			case '?':
@@ -82,8 +82,8 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 					utils.DebugLog("Executing searchNext()")
 					r.searchNext()
 				} else {
-					utils.DebugLog("Executing nextChapter(%d, %d, %d, %f)", r.CurrentChapter, width, pos, pctg)
-					r.nextChapter(r.CurrentChapter, width, pos, pctg)
+					utils.DebugLog("Executing nextChapter(%d, %d, %f)", r.CurrentChapter, pos, pctg)
+					r.nextChapter(r.CurrentChapter, pos, pctg)
 				}
 				return nil
 			case 'N':
@@ -93,12 +93,12 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 					r.searchPrev()
 				} else {
 					utils.DebugLog("Executing prevChapter(%d, %d, %d, %f)", r.CurrentChapter, width, pos, pctg)
-					r.prevChapter(r.CurrentChapter, width, pos, pctg)
+					r.prevChapter(r.CurrentChapter, pos, pctg)
 				}
 				return nil
 			case 'p':
 				utils.DebugLog("p key pressed, CurrentChapter: %d", r.CurrentChapter)
-				r.prevChapter(r.CurrentChapter, width, pos, pctg)
+				r.prevChapter(r.CurrentChapter, pos, pctg)
 				return nil
 			case 'j':
 				r.scrollDown(pos)
@@ -120,27 +120,16 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				return nil
 			case '=':
 				// Check if there's a count before the '=' key
-				if r.UI.CountPrefix > 0 {
-					r.setWidth(r.CurrentChapter, r.UI.CountPrefix, pos, pctg)
-				} else {
-					r.toggleWidth(r.CurrentChapter, width, pos, pctg)
-				}
-				r.UI.CountPrefix = 0 // Reset count prefix
-				return nil
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				// Handle numeric prefix for commands
-				digit := int(event.Rune() - '0')
-				r.UI.CountPrefix = r.UI.CountPrefix*10 + digit
-				r.UI.SetStatus(fmt.Sprintf("Count: %d", r.UI.CountPrefix))
+				r.toggleWidth(r.CurrentChapter, pos, pctg)
 				return nil
 			case 'c':
 				r.UI.CycleColorScheme()
 				return nil
 			case 'b':
-				r.markPosition(r.CurrentChapter, width, pos, pctg)
+				r.markPosition(r.CurrentChapter, pos, pctg)
 				return nil
 			case '`':
-				r.jumpToPosition(r.CurrentChapter, width, pos, pctg)
+				r.jumpToPosition(r.CurrentChapter, pos, pctg)
 				return nil
 			}
 		case tcell.KeyDown:
@@ -523,7 +512,7 @@ func (r *Reader) highlightSearchResults(re *regexp.Regexp, focusedLineIndex int)
 }
 
 // nextChapter moves to the next chapter
-func (r *Reader) nextChapter(index int, width int, pos int, pctg float64) {
+func (r *Reader) nextChapter(index int, pos int, pctg float64) {
 	utils.DebugLog("nextChapter called with index: %d, total chapters: %d", index, len(r.Book.Contents))
 	if index < len(r.Book.Contents)-1 {
 		utils.DebugLog("Moving to next chapter: %d", index+1)
@@ -563,7 +552,7 @@ func (r *Reader) nextChapter(index int, width int, pos int, pctg float64) {
 }
 
 // prevChapter moves to the previous chapter
-func (r *Reader) prevChapter(index int, width int, pos int, pctg float64) {
+func (r *Reader) prevChapter(index int, pos int, pctg float64) {
 	if index > 0 {
 		err := r.readChapter(index-1, 0)
 		if err != nil {
@@ -732,42 +721,14 @@ func (r *Reader) openImage() {
 }
 
 // toggleWidth toggles the width between 80 and the terminal width
-func (r *Reader) toggleWidth(index int, width int, pos int, pctg float64) {
-	_, _, termWidth, _ := r.UI.TextArea.GetInnerRect()
-
-	// Toggle between 80 and the terminal width
-	if width == 80 {
-		r.UI.Width = termWidth
+func (r *Reader) toggleWidth(index int, pos int, pctg float64) {
+	if r.UI.Width == 80 {
+		r.UI.Width = pos
+		utils.DebugLog("toggle to term width")
 	} else {
 		r.UI.Width = 80
+		utils.DebugLog("toggle to 80")
 	}
-
-	// Re-read the chapter
-	err := r.readChapter(index, 0)
-	if err != nil {
-		r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
-	}
-}
-
-// setWidth sets a specific width
-func (r *Reader) setWidth(index int, width int, pos int, pctg float64) {
-	_, _, termWidth, _ := r.UI.TextArea.GetInnerRect()
-
-	// Validate the width
-	if width <= 0 {
-		r.UI.SetStatus("Width must be greater than 0")
-		return
-	}
-
-	// Cap the width to the terminal width
-	if width > termWidth {
-		width = termWidth
-		r.UI.SetStatus(fmt.Sprintf("Width capped to terminal width: %d", termWidth))
-	}
-
-	// Set the width
-	r.UI.Width = width
-	r.UI.SetStatus(fmt.Sprintf("Width set to %d", width))
 
 	// Re-read the chapter
 	err := r.readChapter(index, 0)
@@ -777,7 +738,7 @@ func (r *Reader) setWidth(index int, width int, pos int, pctg float64) {
 }
 
 // markPosition marks the current position
-func (r *Reader) markPosition(index int, width int, pos int, pctg float64) {
+func (r *Reader) markPosition(index int, pos int, pctg float64) {
 	// Get the current position
 	row, _ := r.UI.TextArea.GetScrollOffset()
 	text := r.UI.TextArea.GetText(false)
@@ -789,7 +750,7 @@ func (r *Reader) markPosition(index int, width int, pos int, pctg float64) {
 	r.UI.App.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyRune && event.Rune() >= '1' && event.Rune() <= '9' {
 			// Mark the position
-			r.JumpList[event.Rune()] = [4]interface{}{index, width, row, pctg}
+			r.JumpList[event.Rune()] = [4]interface{}{index, r.UI.Width, row, pctg}
 			r.UI.SetStatus(fmt.Sprintf("Position marked as %c", event.Rune()))
 			return nil
 		}
@@ -798,7 +759,7 @@ func (r *Reader) markPosition(index int, width int, pos int, pctg float64) {
 }
 
 // jumpToPosition jumps to a marked position
-func (r *Reader) jumpToPosition(index int, width int, pos int, pctg float64) {
+func (r *Reader) jumpToPosition(index int, pos int, pctg float64) {
 	// Wait for a key
 	r.UI.StatusBar.SetText("Jump to position (1-9): ")
 	r.UI.App.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
