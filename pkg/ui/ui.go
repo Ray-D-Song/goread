@@ -232,14 +232,20 @@ func (ui *UI) ShowMetadata(metadata [][]string) error {
 		AddText("Metadata", true, tview.AlignCenter, tcell.ColorWhite).
 		AddText("Press Esc or Enter to close", false, tview.AlignCenter, tcell.ColorWhite)
 
-	// Save the original input capture function
-	originalInputCapture := ui.App.GetInputCapture()
-
+	var resetCapture func()
 	// Set a new input capture function at the application level
-	ui.App.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	resetCapture = ui.SetCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape, tcell.KeyEnter:
-			ui.App.Stop()
+			resetCapture()
+
+			// Restore the original layout
+			flex := tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(ui.TextArea, 0, 1, true).
+				AddItem(ui.StatusBar, 1, 0, false)
+
+			ui.App.SetRoot(flex, true)
 			return nil
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyPgUp, tcell.KeyPgDn:
 			// Allow scrolling in the table
@@ -252,20 +258,6 @@ func (ui *UI) ShowMetadata(metadata [][]string) error {
 
 	// Run the application
 	ui.App.SetRoot(frame, true)
-	if err := ui.App.Run(); err != nil {
-		return err
-	}
-
-	// Restore the original input capture function
-	ui.App.SetInputCapture(originalInputCapture)
-
-	// Restore the original layout
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(ui.TextArea, 0, 1, true).
-		AddItem(ui.StatusBar, 1, 0, false)
-
-	ui.App.SetRoot(flex, true)
 
 	return nil
 }
