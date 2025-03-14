@@ -77,27 +77,22 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				r.search()
 				return nil
 			case 'n':
-				utils.DebugLog("n key pressed, SearchPattern: '%s', CurrentChapter: %d", r.UI.SearchPattern, r.CurrentChapter)
+				utils.DebugLog("[INFO:searchNext] SearchPattern: '%s', CurrentChapter: %d", r.UI.SearchPattern, r.CurrentChapter)
 				if r.UI.SearchPattern != "" {
-					utils.DebugLog("Executing searchNext()")
 					r.searchNext()
 				} else {
-					utils.DebugLog("Executing nextChapter(%d, %d, %f)", r.CurrentChapter, pos, pctg)
 					r.nextChapter(r.CurrentChapter, pos, pctg)
 				}
 				return nil
 			case 'N':
-				utils.DebugLog("N key pressed, SearchPattern: '%s', CurrentChapter: %d", r.UI.SearchPattern, r.CurrentChapter)
+				utils.DebugLog("[INFO:searchPrev] SearchPattern: '%s', CurrentChapter: %d", r.UI.SearchPattern, r.CurrentChapter)
 				if r.UI.SearchPattern != "" {
-					utils.DebugLog("Executing searchPrev()")
 					r.searchPrev()
 				} else {
-					utils.DebugLog("Executing prevChapter(%d, %d, %d, %f)", r.CurrentChapter, width, pos, pctg)
 					r.prevChapter(r.CurrentChapter, pos, pctg)
 				}
 				return nil
 			case 'p':
-				utils.DebugLog("p key pressed, CurrentChapter: %d", r.CurrentChapter)
 				r.prevChapter(r.CurrentChapter, pos, pctg)
 				return nil
 			case 'j':
@@ -184,20 +179,19 @@ func (r *Reader) SetCapture(f func(event *tcell.EventKey) *tcell.EventKey) {
 
 // readChapter reads a chapter
 func (r *Reader) readChapter(index int, pctg float64) error {
-	utils.DebugLog("readChapter called with index: %d, pctg: %f", index, pctg)
+	utils.DebugLog("[INFO:readChapter] Reading chapter index: %d, pctg: %f", index, pctg)
 	if index < 0 || index >= len(r.Book.Contents) {
-		utils.DebugLog("Invalid chapter index: %d", index)
+		utils.DebugLog("[ERROR:readChapter] Invalid chapter index: %d", index)
 		return fmt.Errorf("invalid chapter index: %d", index)
 	}
 
 	r.CurrentChapter = index
-	utils.DebugLog("Set CurrentChapter to: %d", index)
 	r.UI.StatusBar.SetText(fmt.Sprintf("Reading chapter %d of %d", index+1, len(r.Book.Contents)))
 
 	// Get the chapter content
 	content, err := r.Book.GetChapterContent(index)
 	if err != nil {
-		utils.DebugLog("Error getting chapter content: %v", err)
+		utils.DebugLog("[ERROR:readChapter] Error getting chapter content: %v", err)
 		return err
 	}
 
@@ -205,7 +199,7 @@ func (r *Reader) readChapter(index int, pctg float64) error {
 	parser := parser.NewHTMLParser()
 	err = parser.Parse(content)
 	if err != nil {
-		utils.DebugLog("Error parsing HTML content: %v", err)
+		utils.DebugLog("[ERROR:readChapter] Error parsing HTML content: %v", err)
 		return err
 	}
 
@@ -258,7 +252,7 @@ func (r *Reader) readChapter(index int, pctg float64) error {
 		r.UI.TextArea.ScrollToBeginning()
 	}
 
-	utils.DebugLog("Successfully read chapter %d", index)
+	utils.DebugLog("[INFO:readChapter] Successfully read chapter %d", index)
 	return nil
 }
 
@@ -317,18 +311,156 @@ func (r *Reader) showMetadata() {
 
 // showTOC shows the table of contents
 func (r *Reader) showTOC(index int) {
-	selectedIndex, err := r.UI.ShowTOC(r.Book.TOCEntries, index)
+	utils.DebugLog("[INFO:showTOC] Showing TOC with current index: %d", index)
+
+	// Combine regular chapters and virtual chapters
+	combinedTOCEntries := make([]string, len(r.Book.TOCEntries)+len(r.Book.VirtualTOCEntries))
+	copy(combinedTOCEntries, r.Book.TOCEntries)
+	copy(combinedTOCEntries[len(r.Book.TOCEntries):], r.Book.VirtualTOCEntries)
+
+	selectedIndex, err := r.UI.ShowTOC(combinedTOCEntries, index)
+
 	if err != nil {
+		utils.DebugLog("[ERROR:showTOC] Error showing TOC: %v", err)
 		r.UI.SetStatus(fmt.Sprintf("Error showing TOC: %v", err))
 		return
 	}
 
-	if selectedIndex >= 0 && selectedIndex < len(r.Book.TOCEntries) {
-		err := r.readChapter(selectedIndex, 0)
-		if err != nil {
-			r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
+	if selectedIndex >= 0 && selectedIndex < len(combinedTOCEntries) {
+		// Determine if it's a regular chapter or a virtual chapter
+		if selectedIndex < len(r.Book.TOCEntries) {
+			// Regular chapter
+			utils.DebugLog("[INFO:showTOC] Selected regular chapter at index: %d", selectedIndex)
+			err := r.readChapter(selectedIndex, 0)
+			if err != nil {
+				utils.DebugLog("[ERROR:showTOC] Error reading regular chapter: %v", err)
+				r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
+			}
+		} else {
+			// Virtual chapter
+			virtualIndex := selectedIndex - len(r.Book.TOCEntries)
+			utils.DebugLog("[INFO:showTOC] Selected virtual chapter at index: %d (virtual index: %d)", selectedIndex, virtualIndex)
+			err := r.readVirtualChapter(virtualIndex)
+			if err != nil {
+				utils.DebugLog("[ERROR:showTOC] Error reading virtual chapter: %v", err)
+				r.UI.SetStatus(fmt.Sprintf("Error reading virtual chapter: %v", err))
+			}
+		}
+	} else {
+		utils.DebugLog("[WARN:showTOC] Invalid selection index: %d", selectedIndex)
+	}
+}
+
+// readVirtualChapter reads a virtual chapter
+func (r *Reader) readVirtualChapter(virtualIndex int) error {
+	utils.DebugLog("[INFO:readVirtualChapter] Reading virtual chapter index: %d", virtualIndex)
+
+	if virtualIndex < 0 || virtualIndex >= len(r.Book.VirtualContents) {
+		utils.DebugLog("[ERROR:readVirtualChapter] Virtual chapter index out of range: %d", virtualIndex)
+		return fmt.Errorf("virtual chapter index out of range")
+	}
+
+	virtualContent := r.Book.VirtualContents[virtualIndex]
+	utils.DebugLog("[INFO:readVirtualChapter] Virtual content: FilePath=%s, Fragment=%s", virtualContent.FilePath, virtualContent.Fragment)
+
+	// Find the corresponding file index
+	fileIndex := -1
+	for i, content := range r.Book.Contents {
+		if content == virtualContent.FilePath {
+			fileIndex = i
+			utils.DebugLog("[INFO:readVirtualChapter] Found matching content at index %d", i)
+			break
 		}
 	}
+
+	if fileIndex == -1 {
+		utils.DebugLog("[ERROR:readVirtualChapter] File not found for virtual chapter: %s", virtualContent.FilePath)
+		return fmt.Errorf("file not found for virtual chapter")
+	}
+
+	// Read chapter content
+	content, err := r.Book.GetChapterContent(fileIndex)
+	if err != nil {
+		utils.DebugLog("[ERROR:readVirtualChapter] Error getting chapter content: %v", err)
+		return err
+	}
+
+	// Parse the HTML content
+	htmlParser := parser.NewHTMLParser()
+	err = htmlParser.Parse(content)
+	if err != nil {
+		utils.DebugLog("[ERROR:readVirtualChapter] Error parsing HTML content: %v", err)
+		return err
+	}
+
+	// Format the lines of text
+	lines := htmlParser.FormatLines(r.UI.Width)
+	text := strings.Join(lines, "\n")
+
+	// Find anchor position
+	utils.DebugLog("[INFO:readVirtualChapter] Looking for anchor: %s", virtualContent.Fragment)
+	anchorPattern := fmt.Sprintf(`id="%s"`, virtualContent.Fragment)
+	anchorIndex := strings.Index(content, anchorPattern)
+	if anchorIndex == -1 {
+		// Try other possible anchor formats
+		utils.DebugLog("[INFO:readVirtualChapter] Trying alternative anchor format with id='%s'", virtualContent.Fragment)
+		anchorPattern = fmt.Sprintf(`id='%s'`, virtualContent.Fragment)
+		anchorIndex = strings.Index(content, anchorPattern)
+	}
+	if anchorIndex == -1 {
+		// Try name attribute
+		utils.DebugLog("[INFO:readVirtualChapter] Trying name attribute for anchor: %s", virtualContent.Fragment)
+		anchorPattern = fmt.Sprintf(`name="%s"`, virtualContent.Fragment)
+		anchorIndex = strings.Index(content, anchorPattern)
+	}
+	if anchorIndex == -1 {
+		// Try other possible name attribute formats
+		utils.DebugLog("[INFO:readVirtualChapter] Trying alternative name format for anchor: %s", virtualContent.Fragment)
+		anchorPattern = fmt.Sprintf(`name='%s'`, virtualContent.Fragment)
+		anchorIndex = strings.Index(content, anchorPattern)
+	}
+
+	// If anchor is found, calculate the corresponding text position
+	var startPos float64 = 0
+	if anchorIndex != -1 {
+		utils.DebugLog("[INFO:readVirtualChapter] Anchor found at position: %d", anchorIndex)
+		// Calculate the proportion of text before the anchor
+		beforeAnchor := content[:anchorIndex]
+		startPos = float64(len(beforeAnchor)) / float64(len(content))
+	} else {
+		utils.DebugLog("[WARN:readVirtualChapter] Anchor not found, starting from beginning")
+	}
+
+	// Set current chapter
+	r.CurrentChapter = fileIndex
+
+	// Display chapter content
+	r.UI.TextArea.Clear()
+	r.UI.TextArea.SetText(text)
+
+	// Set status bar
+	statusText := fmt.Sprintf("Reading chapter %d of %d: %s",
+		virtualIndex+1, len(r.Book.VirtualTOCEntries), r.Book.VirtualTOCEntries[virtualIndex])
+	r.UI.SetStatus(statusText)
+
+	// Extract images
+	r.UI.Images = htmlParser.GetImages()
+
+	// Scroll to anchor position
+	lines = strings.Split(text, "\n")
+	if startPos > 0 {
+		lineCount := len(lines)
+		if lineCount > 0 {
+			scrollPos := int(float64(lineCount) * startPos)
+			utils.DebugLog("[INFO:readVirtualChapter] Scrolling to position: %d of %d lines", scrollPos, lineCount)
+			r.UI.TextArea.ScrollTo(scrollPos, 0)
+		}
+	} else {
+		r.UI.TextArea.ScrollToBeginning()
+	}
+
+	utils.DebugLog("[INFO:readVirtualChapter] Successfully read virtual chapter %d", virtualIndex)
+	return nil
 }
 
 // search searches for a pattern
@@ -513,78 +645,200 @@ func (r *Reader) highlightSearchResults(re *regexp.Regexp, focusedLineIndex int)
 
 // nextChapter moves to the next chapter
 func (r *Reader) nextChapter(index int, pos int, pctg float64) {
-	utils.DebugLog("nextChapter called with index: %d, total chapters: %d", index, len(r.Book.Contents))
-	if index < len(r.Book.Contents)-1 {
-		utils.DebugLog("Moving to next chapter: %d", index+1)
-		err := r.readChapter(index+1, 0)
-		if err != nil {
-			utils.DebugLog("Error reading next chapter: %v", err)
-			r.UI.StatusBar.SetText(fmt.Sprintf("Error reading next chapter: %v", err))
-		} else if r.UI.SearchPattern != "" {
-			// If there's an active search pattern, try to find the first occurrence in the new chapter
-			re, err := regexp.Compile(r.UI.SearchPattern)
-			if err == nil {
-				// Find the first occurrence in the new chapter
-				text := r.UI.TextArea.GetText(false)
-				lines := strings.Split(text, "\n")
-				foundIndex := -1
+	utils.DebugLog("[INFO:nextChapter] Moving to next chapter from index: %d", index)
 
-				for i, line := range lines {
-					if re.MatchString(line) {
-						foundIndex = i
-						break
-					}
-				}
+	// Check if we're currently in a virtual chapter
+	virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
 
-				if foundIndex >= 0 {
-					// Highlight all results with the first one focused
-					r.highlightSearchResults(re, foundIndex)
-					// Scroll to the first occurrence
-					r.UI.TextArea.ScrollTo(foundIndex, 0)
-					r.UI.SetStatus(fmt.Sprintf("Found: %s", lines[foundIndex]))
-				}
+	if inVirtualChapter {
+		// If we're in a virtual chapter, move to the next virtual chapter or the next regular chapter
+		if virtualIndex < len(r.Book.VirtualContents)-1 {
+			// Move to the next virtual chapter
+			utils.DebugLog("[INFO:nextChapter] Moving to next virtual chapter: %d", virtualIndex+1)
+			err := r.readVirtualChapter(virtualIndex + 1)
+			if err != nil {
+				utils.DebugLog("[ERROR:nextChapter] Error reading next virtual chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading next virtual chapter: %v", err))
 			}
+		} else if index < len(r.Book.Contents)-1 {
+			// Move to the next regular chapter
+			utils.DebugLog("[INFO:nextChapter] Moving to next regular chapter: %d", index+1)
+			err := r.readChapter(index+1, 0)
+			if err != nil {
+				utils.DebugLog("[ERROR:nextChapter] Error reading next chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading next chapter: %v", err))
+			}
+		} else {
+			utils.DebugLog("[INFO:nextChapter] Already at the last chapter")
+			r.UI.StatusBar.SetText("Already at the last chapter")
 		}
 	} else {
-		utils.DebugLog("Already at the last chapter")
-		r.UI.StatusBar.SetText("Already at the last chapter")
+		// If we're in a regular chapter
+		if index < len(r.Book.Contents)-1 {
+			// If there are more regular chapters, move to the next one
+			utils.DebugLog("[INFO:nextChapter] Moving to next regular chapter: %d", index+1)
+			err := r.readChapter(index+1, 0)
+			if err != nil {
+				utils.DebugLog("[ERROR:nextChapter] Error reading next chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading next chapter: %v", err))
+			}
+		} else if len(r.Book.VirtualContents) > 0 {
+			// If there are virtual chapters, move to the first one
+			utils.DebugLog("[INFO:nextChapter] Moving to first virtual chapter")
+			err := r.readVirtualChapter(0)
+			if err != nil {
+				utils.DebugLog("[ERROR:nextChapter] Error reading virtual chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading virtual chapter: %v", err))
+			}
+		} else {
+			utils.DebugLog("[INFO:nextChapter] Already at the last chapter")
+			r.UI.StatusBar.SetText("Already at the last chapter")
+		}
+	}
+
+	// If there's an active search pattern, try to find the first occurrence in the new chapter
+	if r.UI.SearchPattern != "" {
+		re, err := regexp.Compile(r.UI.SearchPattern)
+		if err == nil {
+			// Find the first occurrence in the new chapter
+			text := r.UI.TextArea.GetText(false)
+			lines := strings.Split(text, "\n")
+			foundIndex := -1
+
+			for i, line := range lines {
+				if re.MatchString(line) {
+					foundIndex = i
+					break
+				}
+			}
+
+			if foundIndex >= 0 {
+				// Highlight all results with the first one focused
+				r.highlightSearchResults(re, foundIndex)
+				// Scroll to the first occurrence
+				r.UI.TextArea.ScrollTo(foundIndex, 0)
+				r.UI.SetStatus(fmt.Sprintf("Found: %s", lines[foundIndex]))
+			}
+		}
 	}
 }
 
 // prevChapter moves to the previous chapter
 func (r *Reader) prevChapter(index int, pos int, pctg float64) {
-	if index > 0 {
-		err := r.readChapter(index-1, 0)
-		if err != nil {
-			r.UI.StatusBar.SetText(fmt.Sprintf("Error reading previous chapter: %v", err))
-		} else if r.UI.SearchPattern != "" {
-			// If there's an active search pattern, try to find the first occurrence in the new chapter
-			re, err := regexp.Compile(r.UI.SearchPattern)
-			if err == nil {
-				// Find the first occurrence in the new chapter
-				text := r.UI.TextArea.GetText(false)
-				lines := strings.Split(text, "\n")
-				foundIndex := -1
+	utils.DebugLog("[INFO:prevChapter] Moving to previous chapter from index: %d", index)
 
-				for i, line := range lines {
-					if re.MatchString(line) {
-						foundIndex = i
-						break
-					}
-				}
+	// Check if we're currently in a virtual chapter
+	virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
 
-				if foundIndex >= 0 {
-					// Highlight all results with the first one focused
-					r.highlightSearchResults(re, foundIndex)
-					// Scroll to the first occurrence
-					r.UI.TextArea.ScrollTo(foundIndex, 0)
-					r.UI.SetStatus(fmt.Sprintf("Found: %s", lines[foundIndex]))
-				}
+	if inVirtualChapter {
+		// If we're in a virtual chapter, move to the previous virtual chapter or the previous regular chapter
+		if virtualIndex > 0 {
+			// Move to the previous virtual chapter
+			utils.DebugLog("[INFO:prevChapter] Moving to previous virtual chapter: %d", virtualIndex-1)
+			err := r.readVirtualChapter(virtualIndex - 1)
+			if err != nil {
+				utils.DebugLog("[ERROR:prevChapter] Error reading previous virtual chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading previous virtual chapter: %v", err))
 			}
+		} else if index > 0 {
+			// Move to the previous regular chapter
+			utils.DebugLog("[INFO:prevChapter] Moving to previous regular chapter: %d", index-1)
+			err := r.readChapter(index-1, 0)
+			if err != nil {
+				utils.DebugLog("[ERROR:prevChapter] Error reading previous chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading previous chapter: %v", err))
+			}
+		} else {
+			utils.DebugLog("[INFO:prevChapter] Already at the first chapter")
+			r.UI.StatusBar.SetText("Already at the first chapter")
 		}
 	} else {
-		r.UI.StatusBar.SetText("Already at the first chapter")
+		// If we're in a regular chapter
+		if index > 0 {
+			// If there are previous regular chapters, move to the previous one
+			utils.DebugLog("[INFO:prevChapter] Moving to previous regular chapter: %d", index-1)
+			err := r.readChapter(index-1, 0)
+			if err != nil {
+				utils.DebugLog("[ERROR:prevChapter] Error reading previous chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading previous chapter: %v", err))
+			}
+		} else if len(r.Book.VirtualContents) > 0 && index == len(r.Book.Contents)-1 {
+			// If we're at the last regular chapter and there are virtual chapters, move to the last virtual chapter
+			utils.DebugLog("[INFO:prevChapter] Moving to last virtual chapter: %d", len(r.Book.VirtualContents)-1)
+			err := r.readVirtualChapter(len(r.Book.VirtualContents) - 1)
+			if err != nil {
+				utils.DebugLog("[ERROR:prevChapter] Error reading virtual chapter: %v", err)
+				r.UI.StatusBar.SetText(fmt.Sprintf("Error reading virtual chapter: %v", err))
+			}
+		} else {
+			utils.DebugLog("[INFO:prevChapter] Already at the first chapter")
+			r.UI.StatusBar.SetText("Already at the first chapter")
+		}
 	}
+
+	// If there's an active search pattern, try to find the first occurrence in the new chapter
+	if r.UI.SearchPattern != "" {
+		re, err := regexp.Compile(r.UI.SearchPattern)
+		if err == nil {
+			// Find the first occurrence in the new chapter
+			text := r.UI.TextArea.GetText(false)
+			lines := strings.Split(text, "\n")
+			foundIndex := -1
+
+			for i, line := range lines {
+				if re.MatchString(line) {
+					foundIndex = i
+					break
+				}
+			}
+
+			if foundIndex >= 0 {
+				// Highlight all results with the first one focused
+				r.highlightSearchResults(re, foundIndex)
+				// Scroll to the first occurrence
+				r.UI.TextArea.ScrollTo(foundIndex, 0)
+				r.UI.SetStatus(fmt.Sprintf("Found: %s", lines[foundIndex]))
+			}
+		}
+	}
+}
+
+// getCurrentVirtualChapter gets the current virtual chapter index if we're in a virtual chapter
+func (r *Reader) getCurrentVirtualChapter() (int, bool) {
+	// Check if we're in a virtual chapter by examining the status bar text
+	status := r.UI.StatusBar.GetText(false)
+
+	// Look for a pattern like "Reading chapter X of Y: Chapter Title"
+	re := regexp.MustCompile(`Reading chapter (\d+) of (\d+): (.+)`)
+	matches := re.FindStringSubmatch(status)
+
+	if len(matches) < 4 {
+		return -1, false
+	}
+
+	_, err := strconv.Atoi(matches[1])
+	if err != nil {
+		utils.DebugLog("[ERROR:getCurrentVirtualChapter] Error parsing chapter number: %v", err)
+		return -1, false
+	}
+
+	_, err = strconv.Atoi(matches[2])
+	if err != nil {
+		utils.DebugLog("[ERROR:getCurrentVirtualChapter] Error parsing total chapters: %v", err)
+		return -1, false
+	}
+
+	chapterTitle := matches[3]
+
+	// Check if this matches any virtual chapter title
+	for i, title := range r.Book.VirtualTOCEntries {
+		if title == chapterTitle {
+			utils.DebugLog("[INFO:getCurrentVirtualChapter] Found matching virtual chapter at index %d", i)
+			return i, true
+		}
+	}
+
+	return -1, false
 }
 
 // scrollDown scrolls down
@@ -713,7 +967,7 @@ func (r *Reader) openImage() {
 		// Open the image using the system's default image viewer
 		err = r.UI.OpenImage(tempFile)
 		if err != nil {
-			utils.DebugLog("Error opening image: %v", err)
+			utils.DebugLog("[ERROR:openImage] Error opening image: %v", err)
 			r.UI.SetStatus(fmt.Sprintf("Error opening image: %v", err))
 			return
 		}
@@ -724,10 +978,10 @@ func (r *Reader) openImage() {
 func (r *Reader) toggleWidth(index int, pos int, pctg float64) {
 	if r.UI.Width == 80 {
 		r.UI.Width = pos
-		utils.DebugLog("toggle to term width")
+		utils.DebugLog("[INFO:toggleWidth] Toggled to terminal width")
 	} else {
 		r.UI.Width = 80
-		utils.DebugLog("toggle to 80")
+		utils.DebugLog("[INFO:toggleWidth] Toggled to 80 columns")
 	}
 
 	// Re-read the chapter
@@ -836,10 +1090,10 @@ func extractImage(book *epub.Epub, imagePath string) (string, error) {
 		// First try to use the Windows temp directory
 		winTempDir := "/mnt/c/Windows/Temp"
 		if _, err := os.Stat(winTempDir); err == nil {
-			utils.DebugLog("Using Windows temp directory: %s", winTempDir)
+			utils.DebugLog("[INFO:extractImage] Using Windows temp directory: %s", winTempDir)
 			tempFile, err = os.CreateTemp(winTempDir, "goread-image-*.png")
 			if err != nil {
-				utils.DebugLog("Failed to create temp file in Windows temp directory: %v", err)
+				utils.DebugLog("[WARN:extractImage] Failed to create temp file in Windows temp directory: %v", err)
 				// Fall back to default temp directory
 				tempFile, err = os.CreateTemp("", "goread-image-*.png")
 				if err != nil {
@@ -858,12 +1112,12 @@ func extractImage(book *epub.Epub, imagePath string) (string, error) {
 						if entry.IsDir() && entry.Name() != "Public" && entry.Name() != "Default" && entry.Name() != "All Users" {
 							userTempDir := filepath.Join(homeDir, entry.Name(), "AppData", "Local", "Temp")
 							if _, err := os.Stat(userTempDir); err == nil {
-								utils.DebugLog("Using Windows user temp directory: %s", userTempDir)
+								utils.DebugLog("[INFO:extractImage] Using Windows user temp directory: %s", userTempDir)
 								tempFile, err = os.CreateTemp(userTempDir, "goread-image-*.png")
 								if err == nil {
 									break
 								}
-								utils.DebugLog("Failed to create temp file in Windows user temp directory: %v", err)
+								utils.DebugLog("[WARN:extractImage] Failed to create temp file in Windows user temp directory: %v", err)
 							}
 						}
 					}
@@ -872,7 +1126,7 @@ func extractImage(book *epub.Epub, imagePath string) (string, error) {
 
 			// If still no temp file, fall back to default
 			if tempFile == nil {
-				utils.DebugLog("Falling back to default temp directory")
+				utils.DebugLog("[INFO:extractImage] Falling back to default temp directory")
 				tempFile, err = os.CreateTemp("", "goread-image-*.png")
 				if err != nil {
 					return "", fmt.Errorf("failed to create temp file: %v", err)
@@ -888,7 +1142,7 @@ func extractImage(book *epub.Epub, imagePath string) (string, error) {
 	}
 	defer tempFile.Close()
 
-	utils.DebugLog("Created temp file: %s", tempFile.Name())
+	utils.DebugLog("[INFO:extractImage] Created temp file: %s", tempFile.Name())
 
 	// Copy the image to the temporary file
 	n, err := io.Copy(tempFile, imageFile)

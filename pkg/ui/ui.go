@@ -338,7 +338,7 @@ Key Bindings:
 
 // ShowSearch shows the search dialog in VIM style
 func (ui *UI) ShowSearch(cb func()) error {
-	utils.DebugLog("showing search")
+	utils.DebugLog("[INFO:ShowSearch] Showing search dialog")
 	// Save the current search pattern
 	originalSearchPattern := ui.SearchPattern
 	// Save the current status bar content
@@ -593,106 +593,105 @@ func (ui *UI) ShowImageSelect(images []string, callback func(string)) error {
 
 // OpenImage opens an image using the default image viewer
 func (ui *UI) OpenImage(imagePath string) error {
-	utils.DebugLog("opening image: %s", imagePath)
+	utils.DebugLog("[INFO:OpenImage] Opening image: %s", imagePath)
 	// Check if the image exists
 	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		utils.DebugLog("image not found: %s", imagePath)
+		utils.DebugLog("[ERROR:OpenImage] Image not found: %s", imagePath)
 		return fmt.Errorf("image not found: %s", imagePath)
 	}
 
 	isWSL := false
 	if _, err := os.Stat("/proc/sys/fs/binfmt_misc/WSLInterop"); err == nil {
 		isWSL = true
+		utils.DebugLog("[INFO:OpenImage] Running in WSL environment")
 	}
 
 	// Open the image using the default image viewer
 	var cmd *exec.Cmd
 	switch {
 	case isWSL:
-		utils.DebugLog("running in WSL")
-
 		// Convert the path to a Windows path
 		winPath, err := exec.Command("wslpath", "-w", imagePath).Output()
 		if err != nil {
-			utils.DebugLog("failed to convert path: %v", err)
+			utils.DebugLog("[ERROR:OpenImage] Failed to convert path: %v", err)
 		} else {
 			winPathStr := strings.TrimSpace(string(winPath))
-			utils.DebugLog("windows path: %s", winPathStr)
+			utils.DebugLog("[INFO:OpenImage] Windows path: %s", winPathStr)
 
 			// Try using explorer.exe directly
-			utils.DebugLog("trying with explorer.exe %s", winPathStr)
+			utils.DebugLog("[INFO:OpenImage] Trying with explorer.exe %s", winPathStr)
 			cmd = exec.Command("explorer.exe", winPathStr)
 			output, err := cmd.CombinedOutput()
 			if err != nil {
-				utils.DebugLog("explorer.exe failed: %v, output: %s", err, string(output))
+				utils.DebugLog("[WARN:OpenImage] Explorer.exe failed: %v, output: %s", err, string(output))
 			} else {
-				utils.DebugLog("explorer.exe succeeded")
+				utils.DebugLog("[INFO:OpenImage] Explorer.exe succeeded")
 				return nil
 			}
 
 			// Try using cmd.exe /c start
-			utils.DebugLog("trying with cmd.exe /c start")
+			utils.DebugLog("[INFO:OpenImage] Trying with cmd.exe /c start")
 			cmd = exec.Command("cmd.exe", "/c", "start", winPathStr)
 			output, err = cmd.CombinedOutput()
 			if err != nil {
-				utils.DebugLog("cmd.exe command failed: %v, output: %s", err, string(output))
+				utils.DebugLog("[WARN:OpenImage] cmd.exe command failed: %v, output: %s", err, string(output))
 			} else {
-				utils.DebugLog("cmd.exe command succeeded")
+				utils.DebugLog("[INFO:OpenImage] cmd.exe command succeeded")
 				return nil
 			}
 
 			// Try using PowerShell as a last resort
 			psCmd := fmt.Sprintf("Start-Process '%s'", winPathStr)
-			utils.DebugLog("trying with powershell: %s", psCmd)
+			utils.DebugLog("[INFO:OpenImage] Trying with powershell: %s", psCmd)
 			cmd = exec.Command("powershell.exe", "-c", psCmd)
 			output, err = cmd.CombinedOutput()
 			if err != nil {
-				utils.DebugLog("powershell command failed: %v, output: %s", err, string(output))
+				utils.DebugLog("[WARN:OpenImage] PowerShell command failed: %v, output: %s", err, string(output))
 			} else {
-				utils.DebugLog("powershell command succeeded")
+				utils.DebugLog("[INFO:OpenImage] PowerShell command succeeded")
 				return nil
 			}
 		}
 
 		// If all Windows methods failed, try wslview as a fallback
 		if commandExists("wslview") {
-			utils.DebugLog("trying wslview as fallback")
+			utils.DebugLog("[INFO:OpenImage] Trying wslview as fallback")
 			cmd = exec.Command("wslview", imagePath)
 			output, err := cmd.CombinedOutput()
 			if err != nil {
-				utils.DebugLog("wslview command failed: %v, output: %s", err, string(output))
+				utils.DebugLog("[WARN:OpenImage] wslview command failed: %v, output: %s", err, string(output))
 			} else {
-				utils.DebugLog("wslview command succeeded")
+				utils.DebugLog("[INFO:OpenImage] wslview command succeeded")
 				return nil
 			}
 		}
 
 		// If all methods failed, try xdg-open
 		if commandExists("xdg-open") {
-			utils.DebugLog("trying xdg-open as last resort")
+			utils.DebugLog("[INFO:OpenImage] Trying xdg-open as last resort")
 			cmd = exec.Command("xdg-open", imagePath)
 			output, err := cmd.CombinedOutput()
 			if err != nil {
-				utils.DebugLog("xdg-open command failed: %v, output: %s", err, string(output))
+				utils.DebugLog("[ERROR:OpenImage] xdg-open command failed: %v, output: %s", err, string(output))
 				return fmt.Errorf("all methods to open image failed")
 			} else {
-				utils.DebugLog("xdg-open command succeeded")
+				utils.DebugLog("[INFO:OpenImage] xdg-open command succeeded")
 				return nil
 			}
 		}
 
 		return fmt.Errorf("all methods to open image failed")
 	case commandExists("xdg-open"):
-		utils.DebugLog("using xdg-open %s", imagePath)
+		utils.DebugLog("[INFO:OpenImage] Using xdg-open %s", imagePath)
 		cmd = exec.Command("xdg-open", imagePath)
 	case commandExists("open"):
-		utils.DebugLog("using open %s", imagePath)
+		utils.DebugLog("[INFO:OpenImage] Using open %s", imagePath)
 		cmd = exec.Command("open", imagePath)
 	case commandExists("start"):
-		utils.DebugLog("using start %s", imagePath)
+		utils.DebugLog("[INFO:OpenImage] Using start %s", imagePath)
 		cmd = exec.Command("start", imagePath)
 	default:
-		utils.DebugLog("no image viewer found")
+		utils.DebugLog("[ERROR:OpenImage] No image viewer found")
 		return fmt.Errorf("no image viewer found")
 	}
 
@@ -700,10 +699,10 @@ func (ui *UI) OpenImage(imagePath string) error {
 	if !isWSL {
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			utils.DebugLog("command failed: %v, output: %s", err, string(output))
+			utils.DebugLog("[ERROR:OpenImage] Command failed: %v, output: %s", err, string(output))
 			return fmt.Errorf("failed to open image: %v", err)
 		}
-		utils.DebugLog("command succeeded")
+		utils.DebugLog("[INFO:OpenImage] Command succeeded")
 		return nil
 	}
 
