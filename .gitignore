@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+epr_reader.egg-info/*
+.venv
+.idea
+build
+dist
+tmp/
+.coverage
+*.epub
+goread
+!goread/
+bin/
