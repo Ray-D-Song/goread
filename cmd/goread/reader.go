@@ -91,6 +91,9 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				if r.UI.SearchPattern != "" {
 					utils.DebugLog("Executing searchPrev()")
 					r.searchPrev()
+				} else {
+					utils.DebugLog("Executing prevChapter(%d, %d, %d, %f)", r.CurrentChapter, width, pos, pctg)
+					r.prevChapter(r.CurrentChapter, width, pos, pctg)
 				}
 				return nil
 			case 'p':
