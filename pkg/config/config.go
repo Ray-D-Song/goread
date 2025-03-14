@@ -8,11 +8,13 @@ import (
 
 // State represents the reading state of a file
 type State struct {
-	Index    int     `json:"index"`
-	Width    int     `json:"width"`
-	Pos      int     `json:"pos"`
-	Pctg     float64 `json:"pctg"`
-	LastRead bool    `json:"lastread"`
+	Index            int     `json:"index"`
+	Width            int     `json:"width"`
+	Pos              int     `json:"pos"`
+	Pctg             float64 `json:"pctg"`
+	LastRead         bool    `json:"lastread"`
+	InVirtualChapter bool    `json:"in_virtual_chapter"`
+	VirtualIndex     int     `json:"virtual_index"`
 }
 
 // Config represents the configuration of the application

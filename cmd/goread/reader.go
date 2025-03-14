@@ -46,6 +46,26 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 	// Initialize the UI
 	r.UI.Width = width
 
+	// Get the state from config to check if we were in a virtual chapter
+	state, ok := r.Config.GetState(r.FilePath)
+
+	// First load the regular chapter
+	err := r.readChapter(index, pctg)
+	if err != nil {
+		utils.DebugLog("[ERROR:Run] Error reading chapter: %v", err)
+		r.UI.StatusBar.SetText(fmt.Sprintf("Error reading chapter: %v", err))
+	}
+
+	// If we were in a virtual chapter, load it
+	if ok && state.InVirtualChapter && state.VirtualIndex >= 0 && state.VirtualIndex < len(r.Book.VirtualContents) {
+		utils.DebugLog("[INFO:Run] Loading virtual chapter: %d", state.VirtualIndex)
+		err := r.readVirtualChapter(state.VirtualIndex)
+		if err != nil {
+			utils.DebugLog("[ERROR:Run] Error reading virtual chapter: %v", err)
+			r.UI.StatusBar.SetText(fmt.Sprintf("Error reading virtual chapter: %v", err))
+		}
+	}
+
 	// Set up the key handling
 	ic := r.UI.App.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
@@ -55,13 +75,17 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				r.clearSearchHighlights()
 				return nil
 			}
-			r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
+			// Check if we're in a virtual chapter
+			virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
+			r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg, inVirtualChapter, virtualIndex)
 			r.UI.App.Stop()
 			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
-				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
+				// Check if we're in a virtual chapter
+				virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
+				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg, inVirtualChapter, virtualIndex)
 				r.UI.App.Stop()
 				return nil
 			case '?':
@@ -156,11 +180,6 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 	})
 
 	InitialCapture = ic.GetInputCapture()
-	// Start the reader
-	err := r.readChapter(index, pctg)
-	if err != nil {
-		r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
-	}
 
 	// Run the application
 	if err := r.UI.App.Run(); err != nil {
@@ -257,13 +276,15 @@ func (r *Reader) readChapter(index int, pctg float64) error {
 }
 
 // saveState saves the reading state
-func (r *Reader) saveState(index int, width int, pos int, pctg float64) {
+func (r *Reader) saveState(index int, width int, pos int, pctg float64, inVirtualChapter bool, virtualIndex int) {
 	state := config.State{
-		Index:    index,
-		Width:    width,
-		Pos:      pos,
-		Pctg:     pctg,
-		LastRead: true,
+		Index:            index,
+		Width:            width,
+		Pos:              pos,
+		Pctg:             pctg,
+		LastRead:         true,
+		InVirtualChapter: inVirtualChapter,
+		VirtualIndex:     virtualIndex,
 	}
 	r.Config.SetState(r.FilePath, state)
 	r.Config.Save()
