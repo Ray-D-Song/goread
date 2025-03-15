@@ -41,6 +41,9 @@ func (e *Epub) parseTOC() error {
 	// The key is the file path (without fragment), the value is a slice of [fragment, title] pairs
 	tocMap := make(map[string][][]string)
 
+	// Create a mapping to store file path to title mapping (without fragments)
+	fileToTitle := make(map[string]string)
+
 	if isNCX {
 		// Parse as NCX file (EPUB 2.0 style)
 		var ncx NCX
@@ -63,6 +66,8 @@ func (e *Epub) parseTOC() error {
 			// Add to the map
 			if _, ok := tocMap[filePath]; !ok {
 				tocMap[filePath] = make([][]string, 0)
+				// Store the first encountered title as the main title for the file
+				fileToTitle[filePath] = navPoint.NavLabel.Text
 			}
 			tocMap[filePath] = append(tocMap[filePath], []string{fragment, navPoint.NavLabel.Text})
 		}
@@ -70,22 +75,43 @@ func (e *Epub) parseTOC() error {
 		// Match contents to navPoints
 		for i, content := range e.Contents {
 			baseContent := filepath.Base(content)
+			matched := false
 
-			// Check if this content file has entries in the TOC
+			// First try exact match
 			for filePath, entries := range tocMap {
-				if strings.Contains(filePath, baseContent) {
-					// If there are no fragments or only one entry, use the first title
-					if len(entries) == 0 || (len(entries) == 1 && entries[0][0] == "") {
-						if len(entries) > 0 {
+				if strings.HasSuffix(content, filePath) {
+					// Exact match
+					if len(entries) > 0 {
+						if entries[0][0] == "" {
+							// No fragment, use the first title
 							e.TOCEntries[i] = entries[0][1]
+						} else {
+							// Has fragments, use the main title for the file
+							e.TOCEntries[i] = fileToTitle[filePath]
 						}
-					} else {
-						// If there are multiple fragments, we need to create virtual chapters
-						// This is a simplification - we just use the first title for now
-						// A more complete solution would split the HTML file based on fragments
-						e.TOCEntries[i] = entries[0][1]
 					}
+					matched = true
 					break
+				}
+			}
+
+			// If exact match fails, try fuzzy matching based on filename
+			if !matched {
+				for filePath, entries := range tocMap {
+					if strings.Contains(filePath, baseContent) || strings.Contains(baseContent, filepath.Base(filePath)) {
+						// If there are multiple fragments, use the main title for the file
+						if len(entries) > 0 {
+							if entries[0][0] == "" {
+								// No fragment, use the first title
+								e.TOCEntries[i] = entries[0][1]
+							} else {
+								// Has fragments, use the main title for the file
+								e.TOCEntries[i] = fileToTitle[filePath]
+							}
+						}
+						matched = true
+						break
+					}
 				}
 			}
 		}
@@ -111,6 +137,8 @@ func (e *Epub) parseTOC() error {
 			// Add to the map
 			if _, ok := tocMap[filePath]; !ok {
 				tocMap[filePath] = make([][]string, 0)
+				// Store the first encountered title as the main title for the file
+				fileToTitle[filePath] = navLink.Text
 			}
 			tocMap[filePath] = append(tocMap[filePath], []string{fragment, navLink.Text})
 		}
@@ -118,22 +146,43 @@ func (e *Epub) parseTOC() error {
 		// Match contents to navLinks
 		for i, content := range e.Contents {
 			baseContent := filepath.Base(content)
+			matched := false
 
-			// Check if this content file has entries in the TOC
+			// First try exact match
 			for filePath, entries := range tocMap {
-				if strings.Contains(filePath, baseContent) {
-					// If there are no fragments or only one entry, use the first title
-					if len(entries) == 0 || (len(entries) == 1 && entries[0][0] == "") {
-						if len(entries) > 0 {
+				if strings.HasSuffix(content, filePath) {
+					// Exact match
+					if len(entries) > 0 {
+						if entries[0][0] == "" {
+							// No fragment, use the first title
 							e.TOCEntries[i] = entries[0][1]
+						} else {
+							// Has fragments, use the main title for the file
+							e.TOCEntries[i] = fileToTitle[filePath]
 						}
-					} else {
-						// If there are multiple fragments, we need to create virtual chapters
-						// This is a simplification - we just use the first title for now
-						// A more complete solution would split the HTML file based on fragments
-						e.TOCEntries[i] = entries[0][1]
 					}
+					matched = true
 					break
+				}
+			}
+
+			// If exact match fails, try fuzzy matching based on filename
+			if !matched {
+				for filePath, entries := range tocMap {
+					if strings.Contains(filePath, baseContent) || strings.Contains(baseContent, filepath.Base(filePath)) {
+						// If there are multiple fragments, use the main title for the file
+						if len(entries) > 0 {
+							if entries[0][0] == "" {
+								// No fragment, use the first title
+								e.TOCEntries[i] = entries[0][1]
+							} else {
+								// Has fragments, use the main title for the file
+								e.TOCEntries[i] = fileToTitle[filePath]
+							}
+						}
+						matched = true
+						break
+					}
 				}
 			}
 		}

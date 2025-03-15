@@ -278,16 +278,27 @@ func (e *Epub) initialize() error {
 		}
 	}
 
-	// Get the spine items
-	for _, spineItem := range pkg.Spine {
-		if item, ok := manifestItems[spineItem.IDRef]; ok {
-			decodedHref, err := url.QueryUnescape(item.Href)
-			if err != nil {
-				decodedHref = item.Href
+	// Try to get chapter information from TOC
+	contentsFromTOC, err := e.getContentsFromTOC()
+	if err != nil || len(contentsFromTOC) == 0 {
+		utils.DebugLog("[INFO:initialize] Failed to get contents from TOC or no contents found, falling back to spine")
+
+		// If getting from TOC fails, use spine
+		// Get the spine items
+		for _, spineItem := range pkg.Spine {
+			if item, ok := manifestItems[spineItem.IDRef]; ok {
+				decodedHref, err := url.QueryUnescape(item.Href)
+				if err != nil {
+					decodedHref = item.Href
+				}
+				e.Contents = append(e.Contents, e.RootDir+decodedHref)
+				delete(manifestItems, spineItem.IDRef)
 			}
-			e.Contents = append(e.Contents, e.RootDir+decodedHref)
-			delete(manifestItems, spineItem.IDRef)
 		}
+	} else {
+		// Use contents from TOC
+		utils.DebugLog("[INFO:initialize] Using contents from TOC, found %d items", len(contentsFromTOC))
+		e.Contents = contentsFromTOC
 	}
 
 	// Parse the TOC to get the TOC entries
@@ -305,17 +316,11 @@ func (e *Epub) initialize() error {
 	return nil
 }
 
-// processVirtualChapters processes virtual chapters
-func (e *Epub) processVirtualChapters() error {
-	// Add debug log
-	utils.DebugLog("[INFO:processVirtualChapters] Processing virtual chapters")
-	utils.DebugLog("[INFO:processVirtualChapters] TOC file: %s", e.TOC)
-	utils.DebugLog("[INFO:processVirtualChapters] Number of contents: %d", len(e.Contents))
-	for i, content := range e.Contents {
-		utils.DebugLog("[INFO:processVirtualChapters] Content[%d]: %s", i, content)
-	}
+// getContentsFromTOC attempts to get content files from the TOC
+func (e *Epub) getContentsFromTOC() ([]string, error) {
+	utils.DebugLog("[INFO:getContentsFromTOC] Trying to get contents from TOC file: %s", e.TOC)
 
-	// Open the TOC file
+	// Remove "./" prefix if present
 	tocPath := e.TOC
 	if strings.HasPrefix(tocPath, "./") {
 		tocPath = tocPath[2:]
@@ -323,14 +328,18 @@ func (e *Epub) processVirtualChapters() error {
 
 	tocFile, err := e.File.Open(tocPath)
 	if err != nil {
-		utils.DebugLog("[ERROR:processVirtualChapters] Error opening TOC file: %v", err)
-		return err
+		utils.DebugLog("[ERROR:getContentsFromTOC] Error opening TOC file: %v", err)
+		return nil, err
 	}
 	defer tocFile.Close()
 
 	// Determine the TOC file type based on extension or content
 	isNCX := strings.HasSuffix(strings.ToLower(tocPath), ".ncx")
-	utils.DebugLog("[INFO:processVirtualChapters] TOC file is NCX: %v", isNCX)
+	utils.DebugLog("[INFO:getContentsFromTOC] TOC file is NCX: %v", isNCX)
+
+	var contents []string
+	var contentPaths []string
+	var contentMap = make(map[string]bool) // Used for deduplication
 
 	if isNCX {
 		// Parse as NCX file (EPUB 2.0 style)
@@ -338,11 +347,11 @@ func (e *Epub) processVirtualChapters() error {
 		decoder := xml.NewDecoder(tocFile)
 		err = decoder.Decode(&ncx)
 		if err != nil {
-			utils.DebugLog("[ERROR:processVirtualChapters] Error decoding NCX: %v", err)
-			return err
+			utils.DebugLog("[ERROR:getContentsFromTOC] Error decoding NCX: %v", err)
+			return nil, err
 		}
 
-		utils.DebugLog("[INFO:processVirtualChapters] Number of navPoints: %d", len(ncx.NavPoints))
+		utils.DebugLog("[INFO:getContentsFromTOC] Number of navPoints: %d", len(ncx.NavPoints))
 		// Process all navPoints
 		for i, navPoint := range ncx.NavPoints {
 			decodedSrc, err := url.QueryUnescape(navPoint.Content.Src)
@@ -351,38 +360,15 @@ func (e *Epub) processVirtualChapters() error {
 			}
 
 			// Split the src into file path and fragment
-			filePath, fragment := splitPathAndFragment(decodedSrc)
-			utils.DebugLog("[INFO:processVirtualChapters] NavPoint[%d]: Label=%s, Src=%s, FilePath=%s, Fragment=%s",
-				i, navPoint.NavLabel.Text, decodedSrc, filePath, fragment)
+			filePath, _ := splitPathAndFragment(decodedSrc)
+			utils.DebugLog("[INFO:getContentsFromTOC] NavPoint[%d]: Label=%s, Src=%s, FilePath=%s",
+				i, navPoint.NavLabel.Text, decodedSrc, filePath)
 
-			// Skip if no fragment
-			if fragment == "" {
-				utils.DebugLog("[INFO:processVirtualChapters] Skipping NavPoint[%d] - no fragment", i)
-				continue
+			// Add to content paths list, ensuring no duplicates
+			if filePath != "" && !contentMap[filePath] {
+				contentPaths = append(contentPaths, filePath)
+				contentMap[filePath] = true
 			}
-
-			// Find the corresponding content file
-			contentIndex := -1
-			for i, content := range e.Contents {
-				if strings.Contains(content, filePath) {
-					contentIndex = i
-					break
-				}
-			}
-
-			// Skip if content file not found
-			if contentIndex == -1 {
-				utils.DebugLog("[WARN:processVirtualChapters] Skipping NavPoint[%d] - content file not found for path: %s", i, filePath)
-				continue
-			}
-
-			// Add virtual content
-			e.VirtualContents = append(e.VirtualContents, VirtualContent{
-				FilePath: e.Contents[contentIndex],
-				Fragment: fragment,
-			})
-			e.VirtualTOCEntries = append(e.VirtualTOCEntries, navPoint.NavLabel.Text)
-			utils.DebugLog("[INFO:processVirtualChapters] Added virtual chapter: %s (fragment: %s)", navPoint.NavLabel.Text, fragment)
 		}
 	} else {
 		// Parse as navigation document (EPUB 3.0 style)
@@ -390,11 +376,11 @@ func (e *Epub) processVirtualChapters() error {
 		decoder := xml.NewDecoder(tocFile)
 		err = decoder.Decode(&nav)
 		if err != nil {
-			utils.DebugLog("[ERROR:processVirtualChapters] Error decoding Nav: %v", err)
-			return err
+			utils.DebugLog("[ERROR:getContentsFromTOC] Error decoding Nav: %v", err)
+			return nil, err
 		}
 
-		utils.DebugLog("[INFO:processVirtualChapters] Number of navLinks: %d", len(nav.NavLinks))
+		utils.DebugLog("[INFO:getContentsFromTOC] Number of navLinks: %d", len(nav.NavLinks))
 		// Process all navLinks
 		for i, navLink := range nav.NavLinks {
 			decodedHref, err := url.QueryUnescape(navLink.Href)
@@ -403,49 +389,34 @@ func (e *Epub) processVirtualChapters() error {
 			}
 
 			// Split the href into file path and fragment
-			filePath, fragment := splitPathAndFragment(decodedHref)
-			utils.DebugLog("[INFO:processVirtualChapters] NavLink[%d]: Text=%s, Href=%s, FilePath=%s, Fragment=%s",
-				i, navLink.Text, decodedHref, filePath, fragment)
+			filePath, _ := splitPathAndFragment(decodedHref)
+			utils.DebugLog("[INFO:getContentsFromTOC] NavLink[%d]: Text=%s, Href=%s, FilePath=%s",
+				i, navLink.Text, decodedHref, filePath)
 
-			// Skip if no fragment
-			if fragment == "" {
-				utils.DebugLog("[INFO:processVirtualChapters] Skipping NavLink[%d] - no fragment", i)
-				continue
+			// Add to content paths list, ensuring no duplicates
+			if filePath != "" && !contentMap[filePath] {
+				contentPaths = append(contentPaths, filePath)
+				contentMap[filePath] = true
 			}
-
-			// Find the corresponding content file
-			contentIndex := -1
-			for i, content := range e.Contents {
-				if strings.Contains(content, filePath) {
-					contentIndex = i
-					break
-				}
-			}
-
-			// Skip if content file not found
-			if contentIndex == -1 {
-				utils.DebugLog("[WARN:processVirtualChapters] Skipping NavLink[%d] - content file not found for path: %s", i, filePath)
-				continue
-			}
-
-			// Add virtual content
-			e.VirtualContents = append(e.VirtualContents, VirtualContent{
-				FilePath: e.Contents[contentIndex],
-				Fragment: fragment,
-			})
-			e.VirtualTOCEntries = append(e.VirtualTOCEntries, navLink.Text)
-			utils.DebugLog("[INFO:processVirtualChapters] Added virtual chapter: %s (fragment: %s)", navLink.Text, fragment)
 		}
 	}
 
-	// Add debug log
-	utils.DebugLog("[INFO:processVirtualChapters] Found %d virtual chapters", len(e.VirtualContents))
-	for i, vc := range e.VirtualContents {
-		utils.DebugLog("[INFO:processVirtualChapters] VirtualContent[%d]: Title=%s, FilePath=%s, Fragment=%s",
-			i, e.VirtualTOCEntries[i], vc.FilePath, vc.Fragment)
+	// Convert relative paths to full paths
+	for _, path := range contentPaths {
+		fullPath := e.RootDir + path
+		contents = append(contents, fullPath)
+		utils.DebugLog("[INFO:getContentsFromTOC] Added content file: %s", fullPath)
 	}
 
-	return nil
+	// If we found content files, return them
+	if len(contents) > 0 {
+		utils.DebugLog("[INFO:getContentsFromTOC] Successfully extracted %d content files from TOC", len(contents))
+		return contents, nil
+	}
+
+	// If no content files were found, return an empty slice
+	utils.DebugLog("[WARN:getContentsFromTOC] No content files found in TOC")
+	return []string{}, nil
 }
 
 // splitPathAndFragment splits a path into the file path and fragment

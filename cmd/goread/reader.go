@@ -456,106 +456,66 @@ func (r *Reader) readVirtualChapter(virtualIndex int) error {
 	r.CurrentChapter = fileIndex
 
 	// Create cache keys
-	filePath := virtualContent.FilePath
 	fragment := virtualContent.Fragment
-	widthKey := fmt.Sprintf("%s_%d", filePath, r.UI.Width)
 
-	var content string
-	var htmlParser *parser.HTMLParser
-	var lines []string
-	var startPos float64 = 0
+	fileContent, err := r.Book.GetChapterContent(fileIndex)
+	if err != nil {
+		utils.DebugLog("[ERROR:readVirtualChapter] Error getting chapter content: %v", err)
+		return err
+	}
 
-	// Step 1: Get HTML content (from cache if available)
-	if cachedContent, ok := r.HTMLCache[filePath]; ok {
-		utils.DebugLog("[INFO:readVirtualChapter] Using cached HTML content for %s", filePath)
-		content = cachedContent
-	} else {
-		// Read chapter content
-		var err error
-		content, err = r.Book.GetChapterContent(fileIndex)
+	// Initialize HTML parser
+	htmlParser := parser.NewHTMLParser()
+
+	utils.DebugLog("[INFO:readVirtualChapter] Looking for anchor: %s", fragment)
+	// Get next anchor
+	var nextAnchor string
+	if virtualIndex < len(r.Book.VirtualContents)-1 {
+		nextVirtualContent := r.Book.VirtualContents[virtualIndex+1]
+		// Only use the next anchor if it's in the same file
+		if nextVirtualContent.FilePath == virtualContent.FilePath {
+			nextAnchor = nextVirtualContent.Fragment
+		}
+	}
+	utils.DebugLog("[INFO:readVirtualChapter] Next anchor: %s", nextAnchor)
+
+	// Extract content between anchors
+	extractedContent, err := parser.ExtractBetweenAnchors(fileContent, fragment, nextAnchor)
+	if err == nil && extractedContent != "" {
+		utils.DebugLog("[INFO:readVirtualChapter] Successfully extracted content between anchors")
+
+		// Parse the extracted content to get images
+		err = htmlParser.Parse(extractedContent)
 		if err != nil {
-			utils.DebugLog("[ERROR:readVirtualChapter] Error getting chapter content: %v", err)
-			return err
-		}
-		// Cache the HTML content
-		r.HTMLCache[filePath] = content
-		utils.DebugLog("[INFO:readVirtualChapter] Cached HTML content for %s", filePath)
-	}
-
-	// Step 2: Parse HTML (from cache if available)
-	if cachedParser, ok := r.ParsedCache[filePath]; ok {
-		utils.DebugLog("[INFO:readVirtualChapter] Using cached parsed HTML for %s", filePath)
-		htmlParser = cachedParser
-	} else {
-		// Parse the HTML content
-		htmlParser = parser.NewHTMLParser()
-		err := htmlParser.Parse(content)
-		if err != nil {
-			utils.DebugLog("[ERROR:readVirtualChapter] Error parsing HTML content: %v", err)
-			return err
-		}
-		// Cache the parsed HTML
-		r.ParsedCache[filePath] = htmlParser
-		utils.DebugLog("[INFO:readVirtualChapter] Cached parsed HTML for %s", filePath)
-	}
-
-	// Step 3: Get formatted lines (from cache if available)
-	if cachedLines, ok := r.FormattedCache[widthKey]; ok {
-		utils.DebugLog("[INFO:readVirtualChapter] Using cached formatted lines for %s with width %d", filePath, r.UI.Width)
-		lines = cachedLines
-	} else {
-		// Format the lines of text
-		lines = htmlParser.FormatLines(r.UI.Width)
-		// Cache the formatted lines
-		r.FormattedCache[widthKey] = lines
-		utils.DebugLog("[INFO:readVirtualChapter] Cached formatted lines for %s with width %d", filePath, r.UI.Width)
-	}
-
-	// Step 4: Find anchor position (from cache if available)
-	if anchorCache, ok := r.AnchorCache[filePath]; ok {
-		if pos, ok := anchorCache[fragment]; ok {
-			utils.DebugLog("[INFO:readVirtualChapter] Using cached anchor position for %s#%s", filePath, fragment)
-			startPos = pos
-		}
-	}
-
-	// If anchor position not in cache, find it
-	if startPos == 0 {
-		utils.DebugLog("[INFO:readVirtualChapter] Looking for anchor: %s", fragment)
-
-		// Try different anchor formats
-		anchorPatterns := []string{
-			fmt.Sprintf(`id="%s"`, fragment),
-			fmt.Sprintf(`id='%s'`, fragment),
-			fmt.Sprintf(`name="%s"`, fragment),
-			fmt.Sprintf(`name='%s'`, fragment),
-		}
-
-		for _, pattern := range anchorPatterns {
-			anchorIndex := strings.Index(content, pattern)
-			if anchorIndex != -1 {
-				utils.DebugLog("[INFO:readVirtualChapter] Anchor found at position: %d", anchorIndex)
-				// Calculate the proportion of text before the anchor
-				beforeAnchor := content[:anchorIndex]
-				startPos = float64(len(beforeAnchor)) / float64(len(content))
-
-				// Cache the anchor position
-				if _, ok := r.AnchorCache[filePath]; !ok {
-					r.AnchorCache[filePath] = make(map[string]float64)
-				}
-				r.AnchorCache[filePath][fragment] = startPos
-				utils.DebugLog("[INFO:readVirtualChapter] Cached anchor position for %s#%s", filePath, fragment)
-				break
+			utils.DebugLog("[WARN:readVirtualChapter] Error parsing extracted content: %v", err)
+			// If parsing the extracted content fails, try parsing the entire file content
+			err = htmlParser.Parse(fileContent)
+			if err != nil {
+				utils.DebugLog("[ERROR:readVirtualChapter] Error parsing file content: %v", err)
+				// Continue execution even if parsing fails, just might not have images
 			}
 		}
+	} else {
+		utils.DebugLog("[WARN:readVirtualChapter] Failed to extract content between anchors %s and %s, error: %v", fragment, nextAnchor, err)
+		// If extraction fails, use the entire file content
+		extractedContent = fileContent
 
-		if startPos == 0 {
-			utils.DebugLog("[WARN:readVirtualChapter] Anchor not found, starting from beginning")
+		// Parse the entire file content
+		err = htmlParser.Parse(fileContent)
+		if err != nil {
+			utils.DebugLog("[ERROR:readVirtualChapter] Error parsing file content: %v", err)
+			// Continue execution even if parsing fails, just might not have images
 		}
 	}
 
-	// Join lines for display
-	text := strings.Join(lines, "\n")
+	// Format the extracted content (optional)
+	formattedLines := htmlParser.FormatLines(r.UI.Width)
+	text := strings.Join(formattedLines, "\n")
+
+	// If formatted content is empty, use the raw extracted content
+	if strings.TrimSpace(text) == "" {
+		text = extractedContent
+	}
 
 	// Display chapter content
 	r.UI.TextArea.Clear()
@@ -569,17 +529,7 @@ func (r *Reader) readVirtualChapter(virtualIndex int) error {
 	// Extract images
 	r.UI.Images = htmlParser.GetImages()
 
-	// Scroll to anchor position
-	if startPos > 0 {
-		lineCount := len(lines)
-		if lineCount > 0 {
-			scrollPos := int(float64(lineCount) * startPos)
-			utils.DebugLog("[INFO:readVirtualChapter] Scrolling to position: %d of %d lines", scrollPos, lineCount)
-			r.UI.TextArea.ScrollTo(scrollPos, 0)
-		}
-	} else {
-		r.UI.TextArea.ScrollToBeginning()
-	}
+	r.UI.TextArea.ScrollToBeginning()
 
 	utils.DebugLog("[INFO:readVirtualChapter] Successfully read virtual chapter %d", virtualIndex)
 	return nil
