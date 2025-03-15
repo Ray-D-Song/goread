@@ -113,5 +113,8 @@ func main() {
 
 	// Start the reader
 	reader := NewReader(book, cfg, filePath)
+
+	reader.UI.SetColorScheme(state.ColorScheme)
+
 	reader.Run(state.Index, state.Width, state.Pos, state.Pctg)
 }

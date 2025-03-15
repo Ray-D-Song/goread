@@ -31,10 +31,22 @@ type Reader struct {
 	ParsedCache    map[string]*parser.HTMLParser // Cache parsed HTML, key is file path
 	FormattedCache map[string][]string           // Cache formatted text lines, key is file path+width
 	AnchorCache    map[string]map[string]float64 // Cache anchor positions, key is file path+anchor name
+	TempDir        string                        // Temporary directory for image files
 }
 
 // NewReader creates a new Reader instance
 func NewReader(book *epub.Epub, cfg *config.Config, filePath string) *Reader {
+	// Create a temporary directory for image files
+	tempDir, err := os.MkdirTemp("", "goread-images-*")
+	if err != nil {
+		utils.DebugLog("[ERROR:NewReader] Failed to create temp directory: %v", err)
+		// Continue without a dedicated temp directory
+		tempDir = ""
+	} else {
+		// Register cleanup on program exit
+		utils.DebugLog("[INFO:NewReader] Created temp directory: %s", tempDir)
+	}
+
 	return &Reader{
 		Book:           book,
 		Config:         cfg,
@@ -46,6 +58,7 @@ func NewReader(book *epub.Epub, cfg *config.Config, filePath string) *Reader {
 		ParsedCache:    make(map[string]*parser.HTMLParser),
 		FormattedCache: make(map[string][]string),
 		AnchorCache:    make(map[string]map[string]float64),
+		TempDir:        tempDir,
 	}
 }
 
@@ -54,10 +67,18 @@ var InitialCapture func(event *tcell.EventKey) *tcell.EventKey
 // Run runs the reader
 func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 	// Initialize the UI
-	r.UI.Width = width
+	r.UI.SetWidth(width)
 
 	// Get the state from config to check if we were in a virtual chapter
 	state, ok := r.Config.GetState(r.FilePath)
+
+	// Clean up temp directory when the function returns
+	if r.TempDir != "" {
+		defer func() {
+			utils.DebugLog("[INFO:Run] Cleaning up temp directory: %s", r.TempDir)
+			os.RemoveAll(r.TempDir)
+		}()
+	}
 
 	// Preload some content in background for better performance
 	go r.preloadContent(index)
@@ -87,12 +108,14 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				r.UI.SearchPattern = ""
 				r.clearSearchHighlights()
 				return nil
+			} else {
+				// Only exit if not in search mode
+				// Check if we're in a virtual chapter
+				virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
+				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg, inVirtualChapter, virtualIndex)
+				r.UI.App.Stop()
+				return nil
 			}
-			// Check if we're in a virtual chapter
-			virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
-			r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg, inVirtualChapter, virtualIndex)
-			r.UI.App.Stop()
-			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
@@ -150,9 +173,11 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 			case 'o':
 				r.openImage()
 				return nil
-			case '=':
-				// Check if there's a count before the '=' key
-				r.toggleWidth(r.CurrentChapter, pos, pctg)
+			case '+':
+				r.increaseWidth()
+				return nil
+			case '-':
+				r.decreaseWidth()
 				return nil
 			case 'c':
 				r.UI.CycleColorScheme()
@@ -338,6 +363,7 @@ func (r *Reader) saveState(index int, width int, pos int, pctg float64, inVirtua
 		LastRead:         true,
 		InVirtualChapter: inVirtualChapter,
 		VirtualIndex:     virtualIndex,
+		ColorScheme:      r.UI.ColorScheme,
 	}
 	r.Config.SetState(r.FilePath, state)
 	r.Config.Save()
@@ -561,7 +587,8 @@ func (r *Reader) search() {
 					r.UI.TextArea.ScrollTo(foundIndex, 0)
 					r.UI.SetStatus(fmt.Sprintf("Found: %s", lines[foundIndex]))
 				} else {
-					r.UI.SetStatus(fmt.Sprintf("Pattern not found: %s", r.UI.SearchPattern))
+					r.UI.StatusBar.Clear()
+					fmt.Fprintf(r.UI.StatusBar, "[red]Pattern not found:[white] %s", r.UI.SearchPattern)
 				}
 			}
 		}
@@ -585,7 +612,6 @@ func (r *Reader) searchNext() {
 	row, _ := r.UI.TextArea.GetScrollOffset()
 	pos := row
 
-	// Find the next occurrence
 	lines := strings.Split(text, "\n")
 	found := false
 	foundIndex := -1
@@ -623,7 +649,8 @@ func (r *Reader) searchNext() {
 			r.UI.SetStatus(fmt.Sprintf("Found: %s", lines[foundIndex]))
 		}
 	} else {
-		r.UI.SetStatus(fmt.Sprintf("Pattern not found: %s", r.UI.SearchPattern))
+		r.UI.StatusBar.Clear()
+		fmt.Fprintf(r.UI.StatusBar, "[red]Pattern not found:[white] %s", r.UI.SearchPattern)
 	}
 }
 
@@ -683,7 +710,8 @@ func (r *Reader) searchPrev() {
 			r.UI.SetStatus(fmt.Sprintf("Found: %s", lines[foundIndex]))
 		}
 	} else {
-		r.UI.SetStatus(fmt.Sprintf("Pattern not found: %s", r.UI.SearchPattern))
+		r.UI.StatusBar.Clear()
+		fmt.Fprintf(r.UI.StatusBar, "[red]Pattern not found:[white] %s", r.UI.SearchPattern)
 	}
 }
 
@@ -708,7 +736,7 @@ func (r *Reader) highlightSearchResults(re *regexp.Regexp, focusedLineIndex int)
 		} else {
 			// For other lines, use the standard highlight color
 			highlightedLine := re.ReplaceAllStringFunc(line, func(match string) string {
-				return fmt.Sprintf("[yellow:red]%s[-:-]", match)
+				return fmt.Sprintf("[black:yellow]%s[-:-]", match)
 			})
 			fmt.Fprintln(r.UI.TextArea, highlightedLine)
 		}
@@ -1082,12 +1110,11 @@ func (r *Reader) openImage() {
 		resolvedPath := filepath.Join(chapterDir, imagePath)
 
 		// Extract the image to a temporary file
-		tempFile, err := extractImage(r.Book, resolvedPath)
+		tempFile, err := extractImage(r.Book, resolvedPath, r.TempDir)
 		if err != nil {
 			r.UI.SetStatus(fmt.Sprintf("Error extracting image: %v", err))
 			return
 		}
-		defer os.Remove(tempFile)
 
 		// Open the image using the system's default image viewer
 		err = r.UI.OpenImage(tempFile)
@@ -1099,29 +1126,14 @@ func (r *Reader) openImage() {
 	})
 }
 
-// toggleWidth toggles the width between 80 and the terminal width
-func (r *Reader) toggleWidth(index int, pos int, pctg float64) {
-	oldWidth := r.UI.Width
+// increaseWidth increases the width
+func (r *Reader) increaseWidth() {
+	r.UI.SetWidth(r.UI.Width + 5)
+}
 
-	if r.UI.Width == 80 {
-		r.UI.Width = pos
-		utils.DebugLog("[INFO:toggleWidth] Toggled to terminal width")
-	} else {
-		r.UI.Width = 80
-		utils.DebugLog("[INFO:toggleWidth] Toggled to 80 columns")
-	}
-
-	// Clear the formatted cache since width has changed
-	if oldWidth != r.UI.Width {
-		utils.DebugLog("[INFO:toggleWidth] Clearing formatted cache due to width change")
-		r.FormattedCache = make(map[string][]string)
-	}
-
-	// Re-read the chapter
-	err := r.readChapter(index, 0)
-	if err != nil {
-		r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
-	}
+// decreaseWidth decreases the width
+func (r *Reader) decreaseWidth() {
+	r.UI.SetWidth(r.UI.Width - 5)
 }
 
 // markPosition marks the current position
@@ -1194,7 +1206,7 @@ func (r *Reader) getCurrentChapter() (int, error) {
 }
 
 // extractImage extracts an image from the EPUB file to a temporary file
-func extractImage(book *epub.Epub, imagePath string) (string, error) {
+func extractImage(book *epub.Epub, imagePath string, tempDir string) (string, error) {
 	// Validate inputs
 	if book == nil || book.File == nil {
 		return "", fmt.Errorf("invalid book or zip file")
@@ -1218,6 +1230,23 @@ func extractImage(book *epub.Epub, imagePath string) (string, error) {
 	}
 
 	var tempFile *os.File
+
+	// If we have a temp directory and it's accessible, use it
+	if tempDir != "" && isDirectoryWritable(tempDir) {
+		// Use the provided temp directory
+		utils.DebugLog("[INFO:extractImage] Using provided temp directory: %s", tempDir)
+		tempFile, err = os.CreateTemp(tempDir, "goread-image-*.png")
+		if err != nil {
+			utils.DebugLog("[WARN:extractImage] Failed to create temp file in provided directory: %v", err)
+			// Fall through to other methods
+		} else {
+			// Successfully created temp file in the provided directory
+			defer tempFile.Close()
+			utils.DebugLog("[INFO:extractImage] Created temp file: %s", tempFile.Name())
+			goto COPY_IMAGE
+		}
+	}
+
 	if isWSL {
 		// In WSL, use a Windows-accessible temp directory
 		// First try to use the Windows temp directory
@@ -1277,6 +1306,7 @@ func extractImage(book *epub.Epub, imagePath string) (string, error) {
 
 	utils.DebugLog("[INFO:extractImage] Created temp file: %s", tempFile.Name())
 
+COPY_IMAGE:
 	// Copy the image to the temporary file
 	n, err := io.Copy(tempFile, imageFile)
 	if err != nil {
@@ -1396,4 +1426,26 @@ func (r *Reader) preloadContent(startIndex int) {
 			}
 		}
 	}
+}
+
+// isDirectoryWritable checks if a directory is writable
+func isDirectoryWritable(dir string) bool {
+	// Check if directory exists
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+
+	// Try to create a temporary file in the directory
+	testFile := filepath.Join(dir, ".write_test")
+	f, err := os.Create(testFile)
+	if err != nil {
+		return false
+	}
+
+	// Clean up
+	f.Close()
+	os.Remove(testFile)
+
+	return true
 }

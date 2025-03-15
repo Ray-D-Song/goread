@@ -14,51 +14,6 @@ import (
 
 // ShowImageSelect shows an input dialog for selecting an image by number
 func (ui *UI) ShowImageSelect(images []string, callback func(string)) error {
-	// Save the current status bar content
-	originalStatusText := ui.StatusBar.GetText(false)
-
-	// Get image descriptions from the text
-	text := ui.TextArea.GetText(false)
-	lines := strings.Split(text, "\n")
-
-	// Find image descriptions using regex
-	imgDescriptions := make([]string, len(images))
-	for _, line := range lines {
-		re := regexp.MustCompile(`\[IMG:(\d+)(?:\s*-\s*([^\]]+))?\]`)
-		matches := re.FindAllStringSubmatch(line, -1)
-		for _, match := range matches {
-			if len(match) > 1 {
-				idx := 0
-				fmt.Sscanf(match[1], "%d", &idx)
-				if idx < len(imgDescriptions) && len(match) > 2 && match[2] != "" {
-					imgDescriptions[idx] = match[2]
-				}
-			}
-		}
-	}
-
-	// Create a text view to display image descriptions
-	descView := tview.NewTextView()
-	descView.
-		SetDynamicColors(true).
-		SetRegions(true).
-		SetWordWrap(true).
-		SetScrollable(true).
-		SetBorder(true).
-		SetTitle(" Available Images ")
-
-	// Build the text content for image descriptions
-	var descContent strings.Builder
-	for i, desc := range imgDescriptions {
-		if desc != "" {
-			descContent.WriteString(fmt.Sprintf("[yellow]%d[white]: %s\n", i, desc))
-		} else {
-			descContent.WriteString(fmt.Sprintf("[yellow]%d[white]: Image %d\n", i, i))
-		}
-	}
-
-	// Set the text content
-	descView.SetText(descContent.String())
 
 	// Create an input field for image selection
 	imageInput := tview.NewInputField().
@@ -67,69 +22,23 @@ func (ui *UI) ShowImageSelect(images []string, callback func(string)) error {
 		SetFieldBackgroundColor(tcell.ColorDefault).
 		SetAcceptanceFunc(tview.InputFieldInteger)
 
-	// Create a new Flex layout with the description view and input field
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(ui.TextArea, 0, 3, false).
-		AddItem(descView, 0, 1, false).
-		AddItem(imageInput, 1, 0, true)
+	resetStatus := ui.SetTempStatus(imageInput)
 
-	ui.App.SetRoot(flex, true)
-
-	// Variable to track if we're currently focused on the description view
-	var focusOnDesc bool = false
+	// Explicitly set focus to the image input
+	ui.App.SetFocus(imageInput)
 
 	// Save the original input capture function
 	resetCapture := ui.SetCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEnter:
-			if focusOnDesc {
-				// If focused on description, switch focus back to input
-				focusOnDesc = false
-				ui.App.SetFocus(imageInput)
-				return nil
-			}
-			// Otherwise, let the input field handle it
 			return event
 		case tcell.KeyEscape:
-			if focusOnDesc {
-				// If focused on description, switch focus back to input
-				focusOnDesc = false
-				ui.App.SetFocus(imageInput)
-				return nil
-			}
-			// Otherwise, let the input field handle it
 			return event
-		case tcell.KeyTab:
-			// Toggle focus between input and description view
-			focusOnDesc = !focusOnDesc
-			if focusOnDesc {
-				ui.App.SetFocus(descView)
-			} else {
-				ui.App.SetFocus(imageInput)
-			}
-			return nil
-		case tcell.KeyUp, tcell.KeyDown, tcell.KeyPgUp, tcell.KeyPgDn, tcell.KeyHome, tcell.KeyEnd:
-			if focusOnDesc {
-				// Pass navigation keys to the description view when it's focused
-				return event
-			} else if event.Key() == tcell.KeyUp || event.Key() == tcell.KeyDown {
-				// Switch focus to description view on up/down when in input field
-				focusOnDesc = true
-				ui.App.SetFocus(descView)
-				return event
-			}
-			return nil
 		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete,
 			tcell.KeyLeft, tcell.KeyRight:
-			// Allow these keys for text editing when input is focused
-			if !focusOnDesc {
-				return event
-			}
-			return nil
+			return event
 		case tcell.KeyRune:
-			// Allow text input (only numbers) when input is focused
-			if !focusOnDesc && event.Rune() >= '0' && event.Rune() <= '9' {
+			if event.Rune() >= '0' && event.Rune() <= '9' {
 				return event
 			}
 			return nil
@@ -164,16 +73,7 @@ func (ui *UI) ShowImageSelect(images []string, callback func(string)) error {
 		// Restore the original input capture function
 		resetCapture()
 
-		// Restore the original layout
-		restoreFlex := tview.NewFlex().
-			SetDirection(tview.FlexRow).
-			AddItem(ui.TextArea, 0, 1, true).
-			AddItem(ui.StatusBar, 1, 0, false)
-
-		ui.App.SetRoot(restoreFlex, true)
-
-		// Restore the status bar content
-		ui.StatusBar.SetText(originalStatusText)
+		resetStatus()
 	})
 
 	return nil
@@ -197,6 +97,8 @@ func (ui *UI) OpenImage(imagePath string) error {
 	// Open the image using the default image viewer
 	var cmd *exec.Cmd
 	switch {
+	// I don't know why
+	// but wsl may may trigger twice opening the image
 	case isWSL:
 		// Convert the path to a Windows path
 		winPath, err := exec.Command("wslpath", "-w", imagePath).Output()

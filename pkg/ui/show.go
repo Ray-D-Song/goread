@@ -150,12 +150,11 @@ Key Bindings:
     Next Occurrence  : n
     Prev Occurrence  : N
     Toggle width     : =
-    Set width        : [count]=
     ToC              : TAB       t
     Metadata         : m
     Mark pos to n    : b[n]
     Jump to pos n    : ` + "`" + `[n]
-    Switch colorsch  : [default=0, dark=1, light=2]c
+    Switch colorsch  : c
 `
 
 	textView := tview.NewTextView().
@@ -206,19 +205,15 @@ func (ui *UI) ShowSearch(cb func()) error {
 	utils.DebugLog("[INFO:ShowSearch] Showing search dialog")
 	// Save the current search pattern
 	originalSearchPattern := ui.SearchPattern
-	// Save the current status bar content
-	originalStatusText := ui.StatusBar.GetText(false)
 
 	// Set the initial search text
 	ui.SearchInput.SetText(ui.SearchPattern)
 
-	// Create a new Flex layout, replacing the status bar with the search input
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(ui.TextArea, 0, 1, false).
-		AddItem(ui.SearchInput, 1, 0, true)
+	resetStatus := ui.SetTempStatus(ui.SearchInput)
 
-	ui.App.SetRoot(flex, true)
+	// Explicitly set focus to the search input
+	ui.App.SetFocus(ui.SearchInput)
+
 	ui.IsSearchMode = true
 
 	// Set the input capture function at the application level
@@ -250,16 +245,7 @@ func (ui *UI) ShowSearch(cb func()) error {
 			// Restore the original input capture function
 			resetCapture()
 
-			// Restore the original layout
-			restoreFlex := tview.NewFlex().
-				SetDirection(tview.FlexRow).
-				AddItem(ui.TextArea, 0, 1, true).
-				AddItem(ui.StatusBar, 1, 0, false)
-
-			ui.App.SetRoot(restoreFlex, true)
-
-			// Restore the status bar content
-			ui.StatusBar.SetText(originalStatusText)
+			resetStatus()
 
 			// Call the callback function to perform the search
 			if cb != nil {
@@ -273,16 +259,7 @@ func (ui *UI) ShowSearch(cb func()) error {
 			// Restore the original input capture function
 			resetCapture()
 
-			// Restore the original layout
-			restoreFlex := tview.NewFlex().
-				SetDirection(tview.FlexRow).
-				AddItem(ui.TextArea, 0, 1, true).
-				AddItem(ui.StatusBar, 1, 0, false)
-
-			ui.App.SetRoot(restoreFlex, true)
-
-			// Restore the status bar content
-			ui.StatusBar.SetText(originalStatusText)
+			resetStatus()
 		}
 	})
 

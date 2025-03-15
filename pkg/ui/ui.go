@@ -7,6 +7,7 @@ import (
 	"os/exec"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/ray-d-song/goread/pkg/utils"
 	"github.com/rivo/tview"
 )
 
@@ -25,12 +26,16 @@ const (
 // UI represents the user interface
 type UI struct {
 	App           *tview.Application
+	Container     *tview.Flex
+	Horizontal    *tview.Flex
+	Content       *tview.Flex
+	LeftPanel     *tview.Box
+	RightPanel    *tview.Box
 	TextArea      *tview.TextView
 	StatusBar     *tview.TextView
 	SearchInput   *tview.InputField // VIM style search input
 	ColorScheme   ColorScheme
 	Width         int
-	Height        int
 	JumpList      map[rune][4]interface{} // [index, width, pos, pctg]
 	SearchPattern string
 	Images        []string // Images in the current chapter
@@ -59,7 +64,7 @@ func NewUI() *UI {
 	searchInput := tview.NewInputField().
 		SetLabel("/").
 		SetFieldWidth(0).
-		SetFieldBackgroundColor(tcell.ColorDefault)
+		SetFieldBackgroundColor(tcell.ColorDeepSkyBlue)
 
 	ui := &UI{
 		App:          app,
@@ -72,17 +77,51 @@ func NewUI() *UI {
 		CountPrefix:  0,
 	}
 
-	// Set up the layout
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(textArea, 0, 1, true).
-		AddItem(statusBar, 1, 0, false)
+	// container, full screen
+	container := tview.NewFlex().SetDirection(tview.FlexRow)
+	container.SetFullScreen(true)
 
-	app.SetRoot(flex, true)
+	// horizontal flex
+	// use flex to align the content to the center of the screen
+	horizontal := tview.NewFlex().SetDirection(tview.FlexColumn)
+	_, h := utils.GetTermSize()
+	container.AddItem(horizontal, h, 0, true)
 
+	// content
+	content := tview.NewFlex().SetDirection(tview.FlexRow)
+	content.AddItem(textArea, 0, 1, true)
+	content.AddItem(statusBar, 1, 0, false)
+
+	leftPanel := tview.NewBox()
+	rightPanel := tview.NewBox()
+	horizontal.
+		AddItem(leftPanel, 0, 1, false).
+		AddItem(content, 0, 1, true).
+		AddItem(rightPanel, 0, 1, false)
+
+	app.SetRoot(container, true)
+	ui.Container = container
+	ui.Horizontal = horizontal
+	ui.Content = content
+	ui.LeftPanel = leftPanel
+	ui.RightPanel = rightPanel
 	return ui
 }
 
+func (ui *UI) ReRender() {
+	ui.App.Draw()
+}
+
+// SetWidth this func actually sets the width of the goread window
+func (ui *UI) SetWidth(width int) {
+	if width > 0 {
+		ui.Horizontal.ResizeItem(ui.Content, width, 0)
+		ui.Width = width
+	}
+}
+
+// SetCapture sets the input capture function
+// return a function to restore the original input capture
 func (ui *UI) SetCapture(f func(event *tcell.EventKey) *tcell.EventKey) func() {
 	originalInputCapture := ui.App.GetInputCapture()
 	ui.App.SetInputCapture(f)
@@ -95,34 +134,30 @@ func (ui *UI) SetCapture(f func(event *tcell.EventKey) *tcell.EventKey) func() {
 func (ui *UI) SetColorScheme(scheme ColorScheme) {
 	ui.ColorScheme = scheme
 
+	ui.StatusBar.SetBackgroundColor(tcell.ColorDeepSkyBlue)
+	ui.StatusBar.SetTextColor(tcell.ColorWhite)
 	switch scheme {
 	case DefaultColorScheme:
+		ui.Container.SetBackgroundColor(tcell.ColorDefault)
+		ui.Horizontal.SetBackgroundColor(tcell.ColorDefault)
+		ui.LeftPanel.SetBackgroundColor(tcell.ColorDefault)
+		ui.RightPanel.SetBackgroundColor(tcell.ColorDefault)
 		ui.TextArea.SetBackgroundColor(tcell.ColorDefault)
 		ui.TextArea.SetTextColor(tcell.ColorDefault)
-		ui.StatusBar.SetBackgroundColor(tcell.ColorDefault)
-		ui.StatusBar.SetTextColor(tcell.ColorDefault)
-		ui.SearchInput.SetBackgroundColor(tcell.ColorDefault)
-		ui.SearchInput.SetFieldBackgroundColor(tcell.ColorDefault)
-		ui.SearchInput.SetLabelColor(tcell.ColorDefault)
-		ui.SearchInput.SetFieldTextColor(tcell.ColorDefault)
 	case DarkColorScheme:
+		ui.Container.SetBackgroundColor(tcell.ColorDarkSlateGray)
+		ui.Horizontal.SetBackgroundColor(tcell.ColorDarkSlateGray)
+		ui.LeftPanel.SetBackgroundColor(tcell.ColorDarkSlateGray)
+		ui.RightPanel.SetBackgroundColor(tcell.ColorDarkSlateGray)
 		ui.TextArea.SetBackgroundColor(tcell.ColorDarkSlateGray)
 		ui.TextArea.SetTextColor(tcell.ColorWhite)
-		ui.StatusBar.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.StatusBar.SetTextColor(tcell.ColorWhite)
-		ui.SearchInput.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.SearchInput.SetFieldBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.SearchInput.SetLabelColor(tcell.ColorWhite)
-		ui.SearchInput.SetFieldTextColor(tcell.ColorWhite)
 	case LightColorScheme:
+		ui.Container.SetBackgroundColor(tcell.ColorWhite)
+		ui.Horizontal.SetBackgroundColor(tcell.ColorWhite)
+		ui.LeftPanel.SetBackgroundColor(tcell.ColorWhite)
+		ui.RightPanel.SetBackgroundColor(tcell.ColorWhite)
 		ui.TextArea.SetBackgroundColor(tcell.ColorWhite)
 		ui.TextArea.SetTextColor(tcell.ColorBlack)
-		ui.StatusBar.SetBackgroundColor(tcell.ColorWhite)
-		ui.StatusBar.SetTextColor(tcell.ColorBlack)
-		ui.SearchInput.SetBackgroundColor(tcell.ColorWhite)
-		ui.SearchInput.SetFieldBackgroundColor(tcell.ColorWhite)
-		ui.SearchInput.SetLabelColor(tcell.ColorBlack)
-		ui.SearchInput.SetFieldTextColor(tcell.ColorBlack)
 	}
 }
 
@@ -135,6 +170,29 @@ func (ui *UI) CycleColorScheme() {
 func (ui *UI) SetStatus(text string) {
 	ui.StatusBar.Clear()
 	ui.StatusBar.SetText(text)
+}
+
+// Make text display a norm for the Status Bar
+// This method is used to set a temporary new Status Bar
+// It will return a restoration method
+func (ui *UI) SetTempStatus(views ...tview.Primitive) func() {
+	ui.Content.RemoveItem(ui.StatusBar)
+	for _, view := range views {
+		if v, ok := view.(*tview.InputField); ok {
+			v.SetBackgroundColor(tcell.ColorDeepSkyBlue)
+		}
+		ui.Content.AddItem(view, 1, 0, true)
+	}
+	// Set focus to the last view (usually the input field)
+	if len(views) > 0 {
+		ui.App.SetFocus(views[len(views)-1])
+	}
+	return func() {
+		for _, view := range views {
+			ui.Content.RemoveItem(view)
+		}
+		ui.Content.AddItem(ui.StatusBar, 1, 0, false)
+	}
 }
 
 // commandExists checks if a command exists
