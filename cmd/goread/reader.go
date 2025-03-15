@@ -26,11 +26,11 @@ type Reader struct {
 	JumpList       map[rune][4]interface{} // [index, width, pos, pctg]
 	CurrentChapter int                     // Current chapter index
 
-	// 缓存相关字段
-	HTMLCache      map[string]string             // 缓存HTML内容，键为文件路径
-	ParsedCache    map[string]*parser.HTMLParser // 缓存解析后的HTML，键为文件路径
-	FormattedCache map[string][]string           // 缓存格式化后的文本行，键为文件路径+宽度
-	AnchorCache    map[string]map[string]float64 // 缓存锚点位置，键为文件路径+锚点名
+	// Cache fields
+	HTMLCache      map[string]string             // Cache HTML content, key is file path
+	ParsedCache    map[string]*parser.HTMLParser // Cache parsed HTML, key is file path
+	FormattedCache map[string][]string           // Cache formatted text lines, key is file path+width
+	AnchorCache    map[string]map[string]float64 // Cache anchor positions, key is file path+anchor name
 }
 
 // NewReader creates a new Reader instance

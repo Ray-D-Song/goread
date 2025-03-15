@@ -92,14 +92,11 @@ Key Binding:
     Next Occurrence  : n
     Prev Occurrence  : N
     Toggle width     : =
-    Set width        : [count]=
-    Shrink           : -
-    Enlarge          : +
     ToC              : TAB       t
     Metadata         : m
     Mark pos to n    : b[n]
     Jump to pos n    : ` + "`" + `[n]
-    Switch colorsch  : [default=0, dark=1, light=2]c`)
+    Switch colorsch  : c`)
 }
 
 // printVersion prints the version information
