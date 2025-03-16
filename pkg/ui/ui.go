@@ -195,6 +195,55 @@ func (ui *UI) SetTempStatus(views ...tview.Primitive) func() {
 	}
 }
 
+// SetTempContent sets a temporary content
+func (ui *UI) SetTempContent(view tview.Primitive) func() {
+	originalContent := ui.Content
+	hasLeftPanel := false
+	hasRightPanel := false
+
+	// check if the left panel exist
+	for i := 0; i < ui.Horizontal.GetItemCount(); i++ {
+		if ui.Horizontal.GetItem(i) == ui.LeftPanel {
+			hasLeftPanel = true
+			break
+		}
+	}
+
+	// check if the right panel exist
+	for i := 0; i < ui.Horizontal.GetItemCount(); i++ {
+		if ui.Horizontal.GetItem(i) == ui.RightPanel {
+			hasRightPanel = true
+			break
+		}
+	}
+
+	// clear the horizontal layout
+	ui.Horizontal.Clear()
+
+	// rebuild the temporary layout
+	if hasLeftPanel {
+		ui.Horizontal.AddItem(ui.LeftPanel, 0, 1, false)
+	}
+	ui.Horizontal.AddItem(view, 0, 1, true)
+	if hasRightPanel {
+		ui.Horizontal.AddItem(ui.RightPanel, 0, 1, false)
+	}
+
+	return func() {
+		// restore the original layout
+		ui.Horizontal.Clear()
+
+		// rebuild the original layout
+		if hasLeftPanel {
+			ui.Horizontal.AddItem(ui.LeftPanel, 0, 1, false)
+		}
+		ui.Horizontal.AddItem(originalContent, 0, 1, true)
+		if hasRightPanel {
+			ui.Horizontal.AddItem(ui.RightPanel, 0, 1, false)
+		}
+	}
+}
+
 // commandExists checks if a command exists
 func commandExists(cmd string) bool {
 	_, err := exec.LookPath(cmd)

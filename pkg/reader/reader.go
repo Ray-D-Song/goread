@@ -156,10 +156,10 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				r.prevChapter(r.CurrentChapter, pos, pctg)
 				return nil
 			case 'j':
-				r.scrollDown(pos)
+				r.scrollDown()
 				return nil
 			case 'k':
-				r.scrollUp(pos)
+				r.scrollUp()
 				return nil
 			case ' ':
 				r.pageDown(pos)
@@ -194,10 +194,10 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				return nil
 			}
 		case tcell.KeyDown:
-			r.scrollDown(pos)
+			r.scrollDown()
 			return nil
 		case tcell.KeyUp:
-			r.scrollUp(pos)
+			r.scrollUp()
 			return nil
 		case tcell.KeyPgDn, tcell.KeyRight:
 			r.pageDown(pos)

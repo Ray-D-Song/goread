@@ -10,13 +10,13 @@ import (
 )
 
 // scrollDown scrolls down
-func (r *Reader) scrollDown(pos int) {
+func (r *Reader) scrollDown() {
 	row, col := r.UI.TextArea.GetScrollOffset()
 	r.UI.TextArea.ScrollTo(row+1, col)
 }
 
 // scrollUp scrolls up
-func (r *Reader) scrollUp(pos int) {
+func (r *Reader) scrollUp() {
 	row, col := r.UI.TextArea.GetScrollOffset()
 	if row > 0 {
 		r.UI.TextArea.ScrollTo(row-1, col)

@@ -12,8 +12,7 @@ import (
 func (ui *UI) ShowTOC(tocEntries []string, currentIndex int) (int, error) {
 	list := tview.NewList().
 		ShowSecondaryText(false).
-		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkCyan)
+		SetHighlightFullLine(true)
 
 	for i, entry := range tocEntries {
 		list.AddItem(fmt.Sprintf("%d. %s", i+1, entry), "", 0, nil)
@@ -21,55 +20,81 @@ func (ui *UI) ShowTOC(tocEntries []string, currentIndex int) (int, error) {
 
 	list.SetCurrentItem(currentIndex)
 
-	// Create a frame around the list
-	frame := tview.NewFrame(list).
-		SetBorders(2, 2, 2, 2, 4, 4).
-		AddText("Table of Contents", true, tview.AlignCenter, tcell.ColorWhite).
-		AddText("Press Esc to cancel", false, tview.AlignCenter, tcell.ColorWhite)
+	// Apply theme colors to the list
+	switch ui.ColorScheme {
+	case DefaultColorScheme:
+		list.SetBackgroundColor(tcell.ColorDefault)
+		list.SetMainTextColor(tcell.ColorDefault)
+		list.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
+		list.SetSelectedTextColor(tcell.ColorWhite)
+	case DarkColorScheme:
+		list.SetBackgroundColor(tcell.ColorDarkSlateGray)
+		list.SetMainTextColor(tcell.ColorWhite)
+		list.SetSelectedBackgroundColor(tcell.ColorDarkBlue)
+		list.SetSelectedTextColor(tcell.ColorWhite)
+	case LightColorScheme:
+		list.SetBackgroundColor(tcell.ColorWhite)
+		list.SetMainTextColor(tcell.ColorBlack)
+		list.SetSelectedBackgroundColor(tcell.ColorLightBlue)
+		list.SetSelectedTextColor(tcell.ColorBlack)
+	}
 
-	// Set up the pages
-	pages := tview.NewPages().
-		AddPage("toc", frame, true, true)
+	resetContent := ui.SetTempContent(list)
 
-	// Save the original input capture function
-	originalInputCapture := ui.App.GetInputCapture()
+	ui.App.SetFocus(list)
 
+	var resetCapture func()
 	// Set up the input capture at the application level
 	var selectedIndex int = -1
-	ui.App.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	resetCapture = ui.SetCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
-			ui.App.Stop()
+			resetContent()
+			resetCapture()
 			return nil
 		case tcell.KeyEnter:
 			selectedIndex = list.GetCurrentItem()
-			ui.App.Stop()
+			resetContent()
+			resetCapture()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyHome, tcell.KeyEnd, tcell.KeyPgUp, tcell.KeyPgDn:
 			// Allow navigation in the list
 			return event
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case 'j':
+				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+			case 'k':
+				return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+			case 'c':
+				// Cycle through color schemes
+				ui.CycleColorScheme()
+				// Update list colors based on the new color scheme
+				switch ui.ColorScheme {
+				case DefaultColorScheme:
+					list.SetBackgroundColor(tcell.ColorDefault)
+					list.SetMainTextColor(tcell.ColorDefault)
+					list.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
+					list.SetSelectedTextColor(tcell.ColorWhite)
+				case DarkColorScheme:
+					list.SetBackgroundColor(tcell.ColorDarkSlateGray)
+					list.SetMainTextColor(tcell.ColorWhite)
+					list.SetSelectedBackgroundColor(tcell.ColorDarkBlue)
+					list.SetSelectedTextColor(tcell.ColorWhite)
+				case LightColorScheme:
+					list.SetBackgroundColor(tcell.ColorWhite)
+					list.SetMainTextColor(tcell.ColorBlack)
+					list.SetSelectedBackgroundColor(tcell.ColorLightBlue)
+					list.SetSelectedTextColor(tcell.ColorBlack)
+				}
+				return nil
+			}
 		default:
 			// Block all other keys
 			return nil
 		}
+		return event
 	})
-
-	// Run the application
-	ui.App.SetRoot(pages, true)
-	if err := ui.App.Run(); err != nil {
-		return -1, err
-	}
-
-	// Restore the original input capture function
-	ui.App.SetInputCapture(originalInputCapture)
-
-	// Restore the original layout
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(ui.TextArea, 0, 1, true).
-		AddItem(ui.StatusBar, 1, 0, false)
-
-	ui.App.SetRoot(flex, true)
 
 	return selectedIndex, nil
 }
@@ -80,23 +105,39 @@ func (ui *UI) ShowMetadata(metadata [][]string) error {
 		SetBorders(false).
 		SetSelectable(false, false)
 
-	for i, item := range metadata {
-		table.SetCell(i, 0, tview.NewTableCell(item[0]).
-			SetTextColor(tcell.ColorYellow).
-			SetAlign(tview.AlignLeft).
+	if len(metadata) == 0 {
+		table.SetCell(0, 0, tview.NewTableCell("No metadata found").
+			SetTextColor(tcell.ColorRed).
+			SetAlign(tview.AlignCenter).
 			SetExpansion(1))
-		table.SetCell(i, 1, tview.NewTableCell(item[1]).
-			SetTextColor(tcell.ColorWhite).
-			SetAlign(tview.AlignLeft).
+		table.SetCell(0, 1, tview.NewTableCell("").
+			SetTextColor(tcell.ColorRed).
+			SetAlign(tview.AlignCenter).
 			SetExpansion(2))
+	} else {
+
+		for i, item := range metadata {
+			table.SetCell(i, 0, tview.NewTableCell(item[0]).
+				SetTextColor(tcell.ColorYellow).
+				SetAlign(tview.AlignLeft).
+				SetExpansion(1))
+			table.SetCell(i, 1, tview.NewTableCell(item[1]).
+				SetTextColor(tcell.ColorWhite).
+				SetAlign(tview.AlignLeft).
+				SetExpansion(2))
+		}
 	}
 
-	// Create a frame around the table
-	frame := tview.NewFrame(table).
-		SetBorders(2, 2, 2, 2, 4, 4).
-		AddText("Metadata", true, tview.AlignCenter, tcell.ColorWhite).
-		AddText("Press Esc or Enter to close", false, tview.AlignCenter, tcell.ColorWhite)
+	switch ui.ColorScheme {
+	case DefaultColorScheme:
+		table.SetBackgroundColor(tcell.ColorDefault)
+	case DarkColorScheme:
+		table.SetBackgroundColor(tcell.ColorDarkSlateGray)
+	case LightColorScheme:
+		table.SetBackgroundColor(tcell.ColorWhite)
+	}
 
+	resetContent := ui.SetTempContent(table)
 	var resetCapture func()
 	// Set a new input capture function at the application level
 	resetCapture = ui.SetCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -104,25 +145,35 @@ func (ui *UI) ShowMetadata(metadata [][]string) error {
 		case tcell.KeyEscape, tcell.KeyEnter:
 			resetCapture()
 
-			// Restore the original layout
-			flex := tview.NewFlex().
-				SetDirection(tview.FlexRow).
-				AddItem(ui.TextArea, 0, 1, true).
-				AddItem(ui.StatusBar, 1, 0, false)
-
-			ui.App.SetRoot(flex, true)
+			resetContent()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyPgUp, tcell.KeyPgDn:
 			// Allow scrolling in the table
 			return event
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case 'j':
+				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+			case 'k':
+				return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+			case 'c':
+				ui.CycleColorScheme()
+				switch ui.ColorScheme {
+				case DefaultColorScheme:
+					table.SetBackgroundColor(tcell.ColorDefault)
+				case DarkColorScheme:
+					table.SetBackgroundColor(tcell.ColorDarkSlateGray)
+				case LightColorScheme:
+					table.SetBackgroundColor(tcell.ColorWhite)
+				}
+				return nil
+			}
 		default:
 			// Block all other keys
 			return nil
 		}
+		return event
 	})
-
-	// Run the application
-	ui.App.SetRoot(frame, true)
 
 	return nil
 }
@@ -155,19 +206,30 @@ Key Bindings:
     Mark pos to n    : b[n]
     Jump to pos n    : ` + "`" + `[n]
     Switch colorsch  : c
+		
+Press Esc or Enter to close
 `
-
-	textView := tview.NewTextView().
+	helpContent := tview.NewTextView().
+		SetText(helpText).
 		SetDynamicColors(true).
 		SetRegions(true).
-		SetWordWrap(true).
-		SetText(helpText)
+		SetWordWrap(true)
 
-	// Create a frame around the text view
-	frame := tview.NewFrame(textView).
-		SetBorders(2, 2, 2, 2, 4, 4).
-		AddText("Help", true, tview.AlignCenter, tcell.ColorWhite).
-		AddText("Press Esc or Enter to close", false, tview.AlignCenter, tcell.ColorWhite)
+	switch ui.ColorScheme {
+	case DefaultColorScheme:
+		helpContent.SetBackgroundColor(tcell.ColorDefault)
+		helpContent.SetTextColor(tcell.ColorDefault)
+	case DarkColorScheme:
+		helpContent.SetBackgroundColor(tcell.ColorDarkSlateGray)
+		helpContent.SetTextColor(tcell.ColorWhite)
+	case LightColorScheme:
+		helpContent.SetBackgroundColor(tcell.ColorWhite)
+		helpContent.SetTextColor(tcell.ColorBlack)
+	}
+
+	resetContent := ui.SetTempContent(helpContent)
+
+	ui.App.SetFocus(helpContent)
 
 	var resetCapture func()
 	// Set a new input capture function at the application level
@@ -176,26 +238,44 @@ Key Bindings:
 		case tcell.KeyEscape, tcell.KeyEnter:
 			// Restore the original input capture function
 			resetCapture()
-
-			// Restore the original layout
-			flex := tview.NewFlex().
-				SetDirection(tview.FlexRow).
-				AddItem(ui.TextArea, 0, 1, true).
-				AddItem(ui.StatusBar, 1, 0, false)
-
-			ui.App.SetRoot(flex, true)
+			resetContent()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyPgUp, tcell.KeyPgDn:
 			// Allow scrolling in the help text
 			return event
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case 'j':
+				row, col := helpContent.GetScrollOffset()
+				helpContent.ScrollTo(row+1, col)
+				return nil
+			case 'k':
+				row, col := helpContent.GetScrollOffset()
+				if row > 0 {
+					helpContent.ScrollTo(row-1, col)
+				}
+				return nil
+			case 'c':
+				ui.CycleColorScheme()
+				switch ui.ColorScheme {
+				case DefaultColorScheme:
+					helpContent.SetBackgroundColor(tcell.ColorDefault)
+					helpContent.SetTextColor(tcell.ColorDefault)
+				case DarkColorScheme:
+					helpContent.SetBackgroundColor(tcell.ColorDarkSlateGray)
+					helpContent.SetTextColor(tcell.ColorWhite)
+				case LightColorScheme:
+					helpContent.SetBackgroundColor(tcell.ColorWhite)
+					helpContent.SetTextColor(tcell.ColorBlack)
+				}
+				return nil
+			}
 		default:
 			// Block all other keys
 			return nil
 		}
+		return event
 	})
-
-	// Run the application
-	ui.App.SetRoot(frame, true)
 
 	return nil
 }
