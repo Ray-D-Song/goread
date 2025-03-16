@@ -7,6 +7,7 @@ import (
 
 	"github.com/ray-d-song/goread/pkg/config"
 	"github.com/ray-d-song/goread/pkg/epub"
+	"github.com/ray-d-song/goread/pkg/reader"
 	"github.com/ray-d-song/goread/pkg/utils"
 )
 
@@ -112,7 +113,7 @@ func main() {
 	cfg.Save()
 
 	// Start the reader
-	reader := NewReader(book, cfg, filePath)
+	reader := reader.NewReader(book, cfg, filePath)
 
 	reader.UI.SetColorScheme(state.ColorScheme)
 
