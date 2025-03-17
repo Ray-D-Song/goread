@@ -11,8 +11,7 @@ import (
 // ShowTOC shows the table of contents
 func (ui *UI) ShowTOC(tocEntries []string, currentIndex int) (int, error) {
 	list := tview.NewList().
-		ShowSecondaryText(false).
-		SetHighlightFullLine(true)
+		ShowSecondaryText(false)
 
 	for i, entry := range tocEntries {
 		list.AddItem(fmt.Sprintf("%d. %s", i+1, entry), "", 0, nil)
@@ -23,18 +22,21 @@ func (ui *UI) ShowTOC(tocEntries []string, currentIndex int) (int, error) {
 	// Apply theme colors to the list
 	switch ui.ColorScheme {
 	case DefaultColorScheme:
-		list.SetBackgroundColor(tcell.ColorDefault)
 		list.SetMainTextColor(tcell.ColorDefault)
+		list.SetMainTextStyle(tcell.StyleDefault.Background(tcell.ColorDefault))
+		list.SetBackgroundColor(tcell.ColorDefault)
 		list.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
 		list.SetSelectedTextColor(tcell.ColorWhite)
 	case DarkColorScheme:
-		list.SetBackgroundColor(tcell.ColorDarkSlateGray)
 		list.SetMainTextColor(tcell.ColorWhite)
+		list.SetMainTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkSlateGray))
+		list.SetBackgroundColor(tcell.ColorDarkSlateGray)
 		list.SetSelectedBackgroundColor(tcell.ColorDarkBlue)
 		list.SetSelectedTextColor(tcell.ColorWhite)
 	case LightColorScheme:
-		list.SetBackgroundColor(tcell.ColorWhite)
 		list.SetMainTextColor(tcell.ColorBlack)
+		list.SetMainTextStyle(tcell.StyleDefault.Background(tcell.ColorWhite))
+		list.SetBackgroundColor(tcell.ColorWhite)
 		list.SetSelectedBackgroundColor(tcell.ColorLightBlue)
 		list.SetSelectedTextColor(tcell.ColorBlack)
 	}
@@ -48,13 +50,15 @@ func (ui *UI) ShowTOC(tocEntries []string, currentIndex int) (int, error) {
 	var selectedIndex int = -1
 	resetCapture = ui.SetCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
-		case tcell.KeyEscape:
+		case tcell.KeyEscape, 'q':
 			resetContent()
 			resetCapture()
 			return nil
 		case tcell.KeyEnter:
 			selectedIndex = list.GetCurrentItem()
+			// get the selected item
 			resetContent()
+			ui.ReadChapter(selectedIndex, 0)
 			resetCapture()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyHome, tcell.KeyEnd, tcell.KeyPgUp, tcell.KeyPgDn:
@@ -62,6 +66,10 @@ func (ui *UI) ShowTOC(tocEntries []string, currentIndex int) (int, error) {
 			return event
 		case tcell.KeyRune:
 			switch event.Rune() {
+			case 'q':
+				resetContent()
+				resetCapture()
+				return nil
 			case 'j':
 				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
 			case 'k':
@@ -74,16 +82,19 @@ func (ui *UI) ShowTOC(tocEntries []string, currentIndex int) (int, error) {
 				case DefaultColorScheme:
 					list.SetBackgroundColor(tcell.ColorDefault)
 					list.SetMainTextColor(tcell.ColorDefault)
+					list.SetMainTextStyle(tcell.StyleDefault.Background(tcell.ColorDefault))
 					list.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
 					list.SetSelectedTextColor(tcell.ColorWhite)
 				case DarkColorScheme:
 					list.SetBackgroundColor(tcell.ColorDarkSlateGray)
 					list.SetMainTextColor(tcell.ColorWhite)
+					list.SetMainTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkSlateGray))
 					list.SetSelectedBackgroundColor(tcell.ColorDarkBlue)
 					list.SetSelectedTextColor(tcell.ColorWhite)
 				case LightColorScheme:
-					list.SetBackgroundColor(tcell.ColorWhite)
 					list.SetMainTextColor(tcell.ColorBlack)
+					list.SetMainTextStyle(tcell.StyleDefault.Background(tcell.ColorWhite))
+					list.SetBackgroundColor(tcell.ColorWhite)
 					list.SetSelectedBackgroundColor(tcell.ColorLightBlue)
 					list.SetSelectedTextColor(tcell.ColorBlack)
 				}

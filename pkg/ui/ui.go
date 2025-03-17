@@ -38,9 +38,10 @@ type UI struct {
 	Width         int
 	JumpList      map[rune][4]interface{} // [index, width, pos, pctg]
 	SearchPattern string
-	Images        []string // Images in the current chapter
-	IsSearchMode  bool     // Mark if the search mode is active
-	CountPrefix   int      // Numeric prefix for commands like [count]=
+	Images        []string                            // Images in the current chapter
+	IsSearchMode  bool                                // Mark if the search mode is active
+	CountPrefix   int                                 // Numeric prefix for commands like [count]=
+	ReadChapter   func(index int, pctg float64) error // Chapter to jump to
 }
 
 // NewUI creates a new UI instance

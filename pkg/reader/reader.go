@@ -83,6 +83,7 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 	// Preload some content in background for better performance
 	go r.preloadContent(index)
 
+	r.UI.ReadChapter = r.readChapter
 	// First load the regular chapter
 	err := r.readChapter(index, pctg)
 	if err != nil {
