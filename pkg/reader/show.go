@@ -2,8 +2,6 @@ package reader
 
 import (
 	"fmt"
-
-	"github.com/ray-d-song/goread/pkg/utils"
 )
 
 // showMetadata shows the metadata
@@ -48,42 +46,5 @@ func (r *Reader) showMetadata() {
 
 // showTOC shows the table of contents
 func (r *Reader) showTOC(index int) {
-	utils.DebugLog("[INFO:showTOC] Showing TOC with current index: %d", index)
 
-	// Combine regular chapters and virtual chapters
-	combinedTOCEntries := make([]string, len(r.Book.TOCEntries)+len(r.Book.VirtualTOCEntries))
-	copy(combinedTOCEntries, r.Book.TOCEntries)
-	copy(combinedTOCEntries[len(r.Book.TOCEntries):], r.Book.VirtualTOCEntries)
-
-	selectedIndex, err := r.UI.ShowTOC(combinedTOCEntries, index)
-
-	if err != nil {
-		utils.DebugLog("[ERROR:showTOC] Error showing TOC: %v", err)
-		r.UI.SetStatus(fmt.Sprintf("Error showing TOC: %v", err))
-		return
-	}
-
-	if selectedIndex >= 0 && selectedIndex < len(combinedTOCEntries) {
-		// Determine if it's a regular chapter or a virtual chapter
-		if selectedIndex < len(r.Book.TOCEntries) {
-			// Regular chapter
-			utils.DebugLog("[INFO:showTOC] Selected regular chapter at index: %d", selectedIndex)
-			err := r.readChapter(selectedIndex, 0)
-			if err != nil {
-				utils.DebugLog("[ERROR:showTOC] Error reading regular chapter: %v", err)
-				r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
-			}
-		} else {
-			// Virtual chapter
-			virtualIndex := selectedIndex - len(r.Book.TOCEntries)
-			utils.DebugLog("[INFO:showTOC] Selected virtual chapter at index: %d (virtual index: %d)", selectedIndex, virtualIndex)
-			err := r.readVirtualChapter(virtualIndex)
-			if err != nil {
-				utils.DebugLog("[ERROR:showTOC] Error reading virtual chapter: %v", err)
-				r.UI.SetStatus(fmt.Sprintf("Error reading virtual chapter: %v", err))
-			}
-		}
-	} else {
-		utils.DebugLog("[WARN:showTOC] Invalid selection index: %d", selectedIndex)
-	}
 }

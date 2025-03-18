@@ -27,11 +27,7 @@ type Reader struct {
 	CurrentChapter int                     // Current chapter index
 
 	// Cache fields
-	HTMLCache      map[string]string             // Cache HTML content, key is file path
-	ParsedCache    map[string]*parser.HTMLParser // Cache parsed HTML, key is file path
-	FormattedCache map[string][]string           // Cache formatted text lines, key is file path+width
-	AnchorCache    map[string]map[string]float64 // Cache anchor positions, key is file path+anchor name
-	TempDir        string                        // Temporary directory for image files
+	TempDir string // Temporary directory for image files
 }
 
 // NewReader creates a new Reader instance
@@ -54,10 +50,6 @@ func NewReader(book *epub.Epub, cfg *config.Config, filePath string) *Reader {
 		UI:             ui.NewUI(),
 		JumpList:       make(map[rune][4]interface{}),
 		CurrentChapter: 0,
-		HTMLCache:      make(map[string]string),
-		ParsedCache:    make(map[string]*parser.HTMLParser),
-		FormattedCache: make(map[string][]string),
-		AnchorCache:    make(map[string]map[string]float64),
 		TempDir:        tempDir,
 	}
 }
@@ -69,9 +61,6 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 	// Initialize the UI
 	r.UI.SetWidth(width)
 
-	// Get the state from config to check if we were in a virtual chapter
-	state, ok := r.Config.GetState(r.FilePath)
-
 	// Clean up temp directory when the function returns
 	if r.TempDir != "" {
 		defer func() {
@@ -80,25 +69,12 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 		}()
 	}
 
-	// Preload some content in background for better performance
-	go r.preloadContent(index)
-
 	r.UI.ReadChapter = r.readChapter
 	// First load the regular chapter
 	err := r.readChapter(index, pctg)
 	if err != nil {
 		utils.DebugLog("[ERROR:Run] Error reading chapter: %v", err)
 		r.UI.StatusBar.SetText(fmt.Sprintf("Error reading chapter: %v", err))
-	}
-
-	// If we were in a virtual chapter, load it
-	if ok && state.InVirtualChapter && state.VirtualIndex >= 0 && state.VirtualIndex < len(r.Book.VirtualContents) {
-		utils.DebugLog("[INFO:Run] Loading virtual chapter: %d", state.VirtualIndex)
-		err := r.readVirtualChapter(state.VirtualIndex)
-		if err != nil {
-			utils.DebugLog("[ERROR:Run] Error reading virtual chapter: %v", err)
-			r.UI.StatusBar.SetText(fmt.Sprintf("Error reading virtual chapter: %v", err))
-		}
 	}
 
 	// Set up the key handling
@@ -111,18 +87,14 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				return nil
 			} else {
 				// Only exit if not in search mode
-				// Check if we're in a virtual chapter
-				virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
-				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg, inVirtualChapter, virtualIndex)
+				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
 				r.UI.App.Stop()
 				return nil
 			}
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
-				// Check if we're in a virtual chapter
-				virtualIndex, inVirtualChapter := r.getCurrentVirtualChapter()
-				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg, inVirtualChapter, virtualIndex)
+				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
 				r.UI.App.Stop()
 				return nil
 			case '?':
@@ -184,7 +156,6 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				r.UI.CycleColorScheme()
 				return nil
 			case 'C':
-				r.clearCache("all")
 				r.UI.SetStatus("All caches cleared")
 				return nil
 			case 'b':
@@ -234,76 +205,29 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 // readChapter reads a chapter
 func (r *Reader) readChapter(index int, pctg float64) error {
 	utils.DebugLog("[INFO:readChapter] Reading chapter index: %d, pctg: %f", index, pctg)
-	if index < 0 || index >= len(r.Book.Contents) {
+	if index < 0 || index >= r.Book.TOC.Len() {
 		utils.DebugLog("[ERROR:readChapter] Invalid chapter index: %d", index)
 		return fmt.Errorf("invalid chapter index: %d", index)
 	}
 
 	r.CurrentChapter = index
-	r.UI.StatusBar.SetText(fmt.Sprintf("Reading chapter %d of %d", index+1, len(r.Book.Contents)))
-
-	// Create cache keys
-	filePath := r.Book.Contents[index]
-	widthKey := fmt.Sprintf("%s_%d", filePath, r.UI.Width)
-
-	var content string
-	var htmlParser *parser.HTMLParser
-	var lines []string
+	r.UI.StatusBar.SetText(fmt.Sprintf("Reading chapter %d of %d", index+1, r.Book.TOC.Len()))
 
 	// Step 1: Get HTML content (from cache if available)
-	if cachedContent, ok := r.HTMLCache[filePath]; ok {
-		utils.DebugLog("[INFO:readChapter] Using cached HTML content for %s", filePath)
-		content = cachedContent
-	} else {
-		// Get the chapter content
-		var err error
-		content, err = r.Book.GetChapterContent(index)
-		if err != nil {
-			utils.DebugLog("[ERROR:readChapter] Error getting chapter content: %v", err)
-			return err
-		}
-		// Cache the HTML content
-		r.HTMLCache[filePath] = content
-		utils.DebugLog("[INFO:readChapter] Cached HTML content for %s", filePath)
-	}
-
-	// Step 2: Parse HTML (from cache if available)
-	if cachedParser, ok := r.ParsedCache[filePath]; ok {
-		utils.DebugLog("[INFO:readChapter] Using cached parsed HTML for %s", filePath)
-		htmlParser = cachedParser
-	} else {
-		// Parse the HTML content
-		htmlParser = parser.NewHTMLParser()
-		err := htmlParser.Parse(content)
-		if err != nil {
-			utils.DebugLog("[ERROR:readChapter] Error parsing HTML content: %v", err)
-			return err
-		}
-		// Cache the parsed HTML
-		r.ParsedCache[filePath] = htmlParser
-		utils.DebugLog("[INFO:readChapter] Cached parsed HTML for %s", filePath)
-	}
-
-	// Step 3: Get formatted lines (from cache if available)
-	if cachedLines, ok := r.FormattedCache[widthKey]; ok {
-		utils.DebugLog("[INFO:readChapter] Using cached formatted lines for %s with width %d", filePath, r.UI.Width)
-		lines = cachedLines
-	} else {
-		// Format the lines of text
-		lines = htmlParser.FormatLines(r.UI.Width)
-		// Cache the formatted lines
-		r.FormattedCache[widthKey] = lines
-		utils.DebugLog("[INFO:readChapter] Cached formatted lines for %s with width %d", filePath, r.UI.Width)
+	// Get the chapter content
+	var err error
+	chapterContent, err := r.Book.GetChapterContents(index)
+	if err != nil {
+		utils.DebugLog("[ERROR:readChapter] Error getting chapter content: %v", err)
+		return err
 	}
 
 	// Store the images for later use
-	r.UI.Images = htmlParser.GetImages()
+	r.UI.Images = chapterContent.Images
 
 	// Clear the text area and write the formatted lines
 	r.UI.TextArea.Clear()
-	for _, line := range lines {
-		fmt.Fprintln(r.UI.TextArea, line)
-	}
+	fmt.Fprintln(r.UI.TextArea, chapterContent.Text)
 
 	// If there's an active search pattern, highlight the results
 	if r.UI.SearchPattern != "" {
@@ -311,7 +235,7 @@ func (r *Reader) readChapter(index int, pctg float64) error {
 		if err == nil {
 			// Find the first occurrence to highlight it differently
 			foundIndex := -1
-			for i, line := range lines {
+			for i, line := range chapterContent.Lines {
 				if re.MatchString(line) {
 					foundIndex = i
 					break
@@ -334,7 +258,7 @@ func (r *Reader) readChapter(index int, pctg float64) error {
 	// Scroll to the specified position
 	if pctg > 0 {
 		// Estimate the line count based on the number of lines we wrote
-		lineCount := len(lines)
+		lineCount := len(chapterContent.Lines)
 		if lineCount > 0 {
 			r.UI.TextArea.ScrollTo(int(float64(lineCount)*pctg), 0)
 		}
@@ -347,57 +271,17 @@ func (r *Reader) readChapter(index int, pctg float64) error {
 }
 
 // saveState saves the reading state
-func (r *Reader) saveState(index int, width int, pos int, pctg float64, inVirtualChapter bool, virtualIndex int) {
+func (r *Reader) saveState(index int, width int, pos int, pctg float64) {
 	state := config.State{
-		Index:            index,
-		Width:            width,
-		Pos:              pos,
-		Pctg:             pctg,
-		LastRead:         true,
-		InVirtualChapter: inVirtualChapter,
-		VirtualIndex:     virtualIndex,
-		ColorScheme:      r.UI.ColorScheme,
+		Index:       index,
+		Width:       width,
+		Pos:         pos,
+		Pctg:        pctg,
+		LastRead:    true,
+		ColorScheme: r.UI.ColorScheme,
 	}
 	r.Config.SetState(r.FilePath, state)
 	r.Config.Save()
-}
-
-// getCurrentVirtualChapter gets the current virtual chapter index if we're in a virtual chapter
-func (r *Reader) getCurrentVirtualChapter() (int, bool) {
-	// Check if we're in a virtual chapter by examining the status bar text
-	status := r.UI.StatusBar.GetText(false)
-
-	// Look for a pattern like "Reading chapter X of Y: Chapter Title"
-	re := regexp.MustCompile(`Reading chapter (\d+) of (\d+): (.+)`)
-	matches := re.FindStringSubmatch(status)
-
-	if len(matches) < 4 {
-		return -1, false
-	}
-
-	_, err := strconv.Atoi(matches[1])
-	if err != nil {
-		utils.DebugLog("[ERROR:getCurrentVirtualChapter] Error parsing chapter number: %v", err)
-		return -1, false
-	}
-
-	_, err = strconv.Atoi(matches[2])
-	if err != nil {
-		utils.DebugLog("[ERROR:getCurrentVirtualChapter] Error parsing total chapters: %v", err)
-		return -1, false
-	}
-
-	chapterTitle := matches[3]
-
-	// Check if this matches any virtual chapter title
-	for i, title := range r.Book.VirtualTOCEntries {
-		if title == chapterTitle {
-			utils.DebugLog("[INFO:getCurrentVirtualChapter] Found matching virtual chapter at index %d", i)
-			return i, true
-		}
-	}
-
-	return -1, false
 }
 
 // openImage opens an image
@@ -412,7 +296,7 @@ func (r *Reader) openImage() {
 	// Check if we have images in the UI
 	if len(r.UI.Images) == 0 {
 		// Fallback: parse the chapter content to get images
-		content, err := r.Book.GetChapterContent(index)
+		chapterContent, err := r.Book.GetChapterContents(index)
 		if err != nil {
 			r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
 			return
@@ -420,14 +304,14 @@ func (r *Reader) openImage() {
 
 		// Parse the HTML content
 		htmlParser := parser.NewHTMLParser()
-		err = htmlParser.Parse(content)
+		err = htmlParser.Parse(chapterContent.Text)
 		if err != nil {
 			r.UI.SetStatus(fmt.Sprintf("Error parsing HTML: %v", err))
 			return
 		}
 
 		// Get the images
-		r.UI.Images = htmlParser.GetImages()
+		r.UI.Images = chapterContent.Images
 	}
 
 	// Check if we have any images
@@ -444,12 +328,12 @@ func (r *Reader) openImage() {
 		}
 
 		// Resolve the image path
-		if index < 0 || index >= len(r.Book.Contents) {
+		if index < 0 || index >= r.Book.TOC.Len() {
 			r.UI.SetStatus(fmt.Sprintf("Invalid chapter index: %d", index))
 			return
 		}
 
-		chapterPath := r.Book.Contents[index]
+		chapterPath := r.Book.TOC.Slice[index].Path
 		chapterDir := filepath.Dir(chapterPath)
 		resolvedPath := filepath.Join(chapterDir, imagePath)
 
@@ -494,7 +378,7 @@ func (r *Reader) markPosition(index int, pos int, pctg float64) {
 // getCurrentChapter gets the current chapter
 func (r *Reader) getCurrentChapter() (int, error) {
 	// Use the CurrentChapter field directly
-	if r.CurrentChapter >= 0 && r.CurrentChapter < len(r.Book.Contents) {
+	if r.CurrentChapter >= 0 && r.CurrentChapter < r.Book.TOC.Len() {
 		return r.CurrentChapter, nil
 	}
 
@@ -630,95 +514,6 @@ COPY_IMAGE:
 	}
 
 	return tempFile.Name(), nil
-}
-
-// clearCache clears all caches or specific cache types
-func (r *Reader) clearCache(cacheType string) {
-	switch cacheType {
-	case "all":
-		utils.DebugLog("[INFO:clearCache] Clearing all caches")
-		r.HTMLCache = make(map[string]string)
-		r.ParsedCache = make(map[string]*parser.HTMLParser)
-		r.FormattedCache = make(map[string][]string)
-		r.AnchorCache = make(map[string]map[string]float64)
-	case "html":
-		utils.DebugLog("[INFO:clearCache] Clearing HTML cache")
-		r.HTMLCache = make(map[string]string)
-	case "parsed":
-		utils.DebugLog("[INFO:clearCache] Clearing parsed HTML cache")
-		r.ParsedCache = make(map[string]*parser.HTMLParser)
-	case "formatted":
-		utils.DebugLog("[INFO:clearCache] Clearing formatted lines cache")
-		r.FormattedCache = make(map[string][]string)
-	case "anchor":
-		utils.DebugLog("[INFO:clearCache] Clearing anchor cache")
-		r.AnchorCache = make(map[string]map[string]float64)
-	default:
-		utils.DebugLog("[WARN:clearCache] Unknown cache type: %s", cacheType)
-	}
-}
-
-// preloadContent preloads content for better performance
-func (r *Reader) preloadContent(startIndex int) {
-	utils.DebugLog("[INFO:preloadContent] Starting preload from index %d", startIndex)
-
-	// Preload next chapter if available
-	if startIndex+1 < len(r.Book.Contents) {
-		nextIndex := startIndex + 1
-		filePath := r.Book.Contents[nextIndex]
-
-		// Only preload if not already cached
-		if _, ok := r.HTMLCache[filePath]; !ok {
-			utils.DebugLog("[INFO:preloadContent] Preloading next chapter: %d", nextIndex)
-			content, err := r.Book.GetChapterContent(nextIndex)
-			if err == nil {
-				r.HTMLCache[filePath] = content
-
-				// Parse HTML in background
-				go func() {
-					htmlParser := parser.NewHTMLParser()
-					err := htmlParser.Parse(content)
-					if err == nil {
-						r.ParsedCache[filePath] = htmlParser
-
-						// Format lines in background
-						widthKey := fmt.Sprintf("%s_%d", filePath, r.UI.Width)
-						lines := htmlParser.FormatLines(r.UI.Width)
-						r.FormattedCache[widthKey] = lines
-						utils.DebugLog("[INFO:preloadContent] Completed preloading next chapter: %d", nextIndex)
-					}
-				}()
-			}
-		}
-	}
-
-	// Preload first virtual chapter if available
-	if len(r.Book.VirtualContents) > 0 {
-		virtualContent := r.Book.VirtualContents[0]
-		filePath := virtualContent.FilePath
-
-		// Only preload if not already cached
-		if _, ok := r.HTMLCache[filePath]; !ok {
-			utils.DebugLog("[INFO:preloadContent] Preloading first virtual chapter")
-
-			// Find the corresponding file index
-			fileIndex := -1
-			for i, content := range r.Book.Contents {
-				if content == filePath {
-					fileIndex = i
-					break
-				}
-			}
-
-			if fileIndex != -1 {
-				content, err := r.Book.GetChapterContent(fileIndex)
-				if err == nil {
-					r.HTMLCache[filePath] = content
-					utils.DebugLog("[INFO:preloadContent] Completed preloading first virtual chapter")
-				}
-			}
-		}
-	}
 }
 
 // isDirectoryWritable checks if a directory is writable

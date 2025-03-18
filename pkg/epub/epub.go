@@ -5,10 +5,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"net/url"
 	"path/filepath"
 	"strings"
 
+	"github.com/ray-d-song/goread/pkg/parser"
 	"github.com/ray-d-song/goread/pkg/utils"
 )
 
@@ -21,24 +21,23 @@ var namespaces = map[string]string{
 	"EPUB":  "http://www.idpf.org/2007/ops",
 }
 
-// Epub represents an EPUB book
-type Epub struct {
-	Path              string
-	File              *zip.ReadCloser
-	RootFile          string
-	RootDir           string
-	Version           string
-	TOC               string
-	Contents          []string
-	TOCEntries        []string
-	VirtualContents   []VirtualContent // Virtual chapter content, for handling multiple chapters in the same HTML file
-	VirtualTOCEntries []string         // Virtual chapter table of contents entries
+type TOCValue struct {
+	Title    string
+	Path     string
+	Fragment string
+	Level    int
+	IsDir    bool
 }
 
-// VirtualContent represents a virtual chapter content
-type VirtualContent struct {
-	FilePath string // Actual file path
-	Fragment string // Anchor in the file
+// Epub represents an EPUB book
+type Epub struct {
+	Path     string
+	TOCPath  string
+	File     *zip.ReadCloser
+	RootFile string
+	RootDir  string
+	Version  string
+	TOC      *utils.DList[TOCValue]
 }
 
 // Metadata represents EPUB metadata
@@ -226,9 +225,9 @@ func (e *Epub) parseRootFile() error {
 		if item.MediaType == "application/x-dtbncx+xml" {
 			// Use the correct path for the TOC file
 			if e.RootDir != "" {
-				e.TOC = e.RootDir + item.Href
+				e.TOCPath = e.RootDir + item.Href
 			} else {
-				e.TOC = item.Href
+				e.TOCPath = item.Href
 			}
 			tocFound = true
 			break
@@ -241,9 +240,9 @@ func (e *Epub) parseRootFile() error {
 			if item.Properties == "nav" {
 				// Use the correct path for the TOC file
 				if e.RootDir != "" {
-					e.TOC = e.RootDir + item.Href
+					e.TOCPath = e.RootDir + item.Href
 				} else {
-					e.TOC = item.Href
+					e.TOCPath = item.Href
 				}
 				tocFound = true
 				break
@@ -279,67 +278,34 @@ func (e *Epub) initialize() error {
 	}
 
 	// Try to get chapter information from TOC
-	contentsFromTOC, err := e.getContentsFromTOC()
-	if err != nil || len(contentsFromTOC) == 0 {
-		utils.DebugLog("[INFO:initialize] Failed to get contents from TOC or no contents found, falling back to spine")
-
-		// If getting from TOC fails, use spine
-		// Get the spine items
-		for _, spineItem := range pkg.Spine {
-			if item, ok := manifestItems[spineItem.IDRef]; ok {
-				decodedHref, err := url.QueryUnescape(item.Href)
-				if err != nil {
-					decodedHref = item.Href
-				}
-				e.Contents = append(e.Contents, e.RootDir+decodedHref)
-				delete(manifestItems, spineItem.IDRef)
-			}
-		}
-	} else {
-		// Use contents from TOC
-		utils.DebugLog("[INFO:initialize] Using contents from TOC, found %d items", len(contentsFromTOC))
-		e.Contents = contentsFromTOC
-	}
-
-	// Parse the TOC to get the TOC entries
-	err = e.parseTOC()
-	if err != nil {
-		return err
-	}
-
-	// Process virtual chapters
-	err = e.processVirtualChapters()
-	if err != nil {
+	if err := e.generateTOC(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// getContentsFromTOC attempts to get content files from the TOC
-func (e *Epub) getContentsFromTOC() ([]string, error) {
-	utils.DebugLog("[INFO:getContentsFromTOC] Trying to get contents from TOC file: %s", e.TOC)
+func (e *Epub) generateTOC() error {
+	utils.DebugLog("[INFO:GenerateTOC] Trying to get contents from TOC file: %s", e.TOCPath)
 
 	// Remove "./" prefix if present
-	tocPath := e.TOC
+	tocPath := e.TOCPath
 	if strings.HasPrefix(tocPath, "./") {
 		tocPath = tocPath[2:]
 	}
 
 	tocFile, err := e.File.Open(tocPath)
 	if err != nil {
-		utils.DebugLog("[ERROR:getContentsFromTOC] Error opening TOC file: %v", err)
-		return nil, err
+		utils.DebugLog("[ERROR:GenerateTOC] Error opening TOC file: %v", err)
+		return err
 	}
 	defer tocFile.Close()
 
 	// Determine the TOC file type based on extension or content
 	isNCX := strings.HasSuffix(strings.ToLower(tocPath), ".ncx")
-	utils.DebugLog("[INFO:getContentsFromTOC] TOC file is NCX: %v", isNCX)
+	utils.DebugLog("[INFO:GenerateTOC] TOC file is NCX: %v", isNCX)
 
-	var contents []string
-	var contentPaths []string
-	var contentMap = make(map[string]bool) // Used for deduplication
+	e.TOC = utils.NewDList[TOCValue]()
 
 	if isNCX {
 		// Parse as NCX file (EPUB 2.0 style)
@@ -347,28 +313,13 @@ func (e *Epub) getContentsFromTOC() ([]string, error) {
 		decoder := xml.NewDecoder(tocFile)
 		err = decoder.Decode(&ncx)
 		if err != nil {
-			utils.DebugLog("[ERROR:getContentsFromTOC] Error decoding NCX: %v", err)
-			return nil, err
+			utils.DebugLog("[ERROR:GenerateTOC] Error decoding NCX: %v", err)
+			return err
 		}
-
-		utils.DebugLog("[INFO:getContentsFromTOC] Number of navPoints: %d", len(ncx.NavPoints))
-		// Process all navPoints
-		for i, navPoint := range ncx.NavPoints {
-			decodedSrc, err := url.QueryUnescape(navPoint.Content.Src)
-			if err != nil {
-				decodedSrc = navPoint.Content.Src
-			}
-
-			// Split the src into file path and fragment
-			filePath, _ := splitPathAndFragment(decodedSrc)
-			utils.DebugLog("[INFO:getContentsFromTOC] NavPoint[%d]: Label=%s, Src=%s, FilePath=%s",
-				i, navPoint.NavLabel.Text, decodedSrc, filePath)
-
-			// Add to content paths list, ensuring no duplicates
-			if filePath != "" && !contentMap[filePath] {
-				contentPaths = append(contentPaths, filePath)
-				contentMap[filePath] = true
-			}
+		// Process all nav points recursively
+		var prev *utils.DItem[TOCValue]
+		for i := range ncx.NavPoints {
+			prev = processNestedNavPoints(ncx.NavPoints[i], e.TOC, prev, 0)
 		}
 	} else {
 		// Parse as navigation document (EPUB 3.0 style)
@@ -376,47 +327,49 @@ func (e *Epub) getContentsFromTOC() ([]string, error) {
 		decoder := xml.NewDecoder(tocFile)
 		err = decoder.Decode(&nav)
 		if err != nil {
-			utils.DebugLog("[ERROR:getContentsFromTOC] Error decoding Nav: %v", err)
-			return nil, err
+			utils.DebugLog("[ERROR:GenerateTOC] Error decoding Nav: %v", err)
+			return err
 		}
 
-		utils.DebugLog("[INFO:getContentsFromTOC] Number of navLinks: %d", len(nav.NavLinks))
-		// Process all navLinks
-		for i, navLink := range nav.NavLinks {
-			decodedHref, err := url.QueryUnescape(navLink.Href)
-			if err != nil {
-				decodedHref = navLink.Href
-			}
+		utils.DebugLog("[INFO:GenerateTOC] Number of navLinks: %d", len(nav.NavLinks))
 
-			// Split the href into file path and fragment
-			filePath, _ := splitPathAndFragment(decodedHref)
-			utils.DebugLog("[INFO:getContentsFromTOC] NavLink[%d]: Text=%s, Href=%s, FilePath=%s",
-				i, navLink.Text, decodedHref, filePath)
-
-			// Add to content paths list, ensuring no duplicates
-			if filePath != "" && !contentMap[filePath] {
-				contentPaths = append(contentPaths, filePath)
-				contentMap[filePath] = true
+		// Process nav links
+		var prev *utils.DItem[TOCValue]
+		for _, link := range nav.NavLinks {
+			path, fragment := splitPathAndFragment(link.Href)
+			newItem := TOCValue{
+				Title:    link.Text,
+				Path:     path,
+				Fragment: fragment,
+				Level:    0, // For now we don't handle nested nav links in EPUB 3.0
+				IsDir:    false,
 			}
+			newNode := e.TOC.Add(newItem, prev)
+			prev = newNode
 		}
 	}
 
-	// Convert relative paths to full paths
-	for _, path := range contentPaths {
-		fullPath := e.RootDir + path
-		contents = append(contents, fullPath)
-		utils.DebugLog("[INFO:getContentsFromTOC] Added content file: %s", fullPath)
+	return nil
+}
+
+func processNestedNavPoints(navPoint NavPoint, list *utils.DList[TOCValue], prev *utils.DItem[TOCValue], level int) *utils.DItem[TOCValue] {
+	path, fragment := splitPathAndFragment(navPoint.Content.Src)
+	newItem := TOCValue{
+		Title:    navPoint.NavLabel.Text,
+		Path:     path,
+		Fragment: fragment,
+		Level:    level,
+		IsDir:    len(navPoint.NavPoints) > 0,
 	}
 
-	// If we found content files, return them
-	if len(contents) > 0 {
-		utils.DebugLog("[INFO:getContentsFromTOC] Successfully extracted %d content files from TOC", len(contents))
-		return contents, nil
+	newNode := list.Add(newItem, prev)
+
+	// Recursively process child nav points
+	for i := range navPoint.NavPoints {
+		newNode = processNestedNavPoints(navPoint.NavPoints[i], list, newNode, level+1)
 	}
 
-	// If no content files were found, return an empty slice
-	utils.DebugLog("[WARN:getContentsFromTOC] No content files found in TOC")
-	return []string{}, nil
+	return newNode
 }
 
 // splitPathAndFragment splits a path into the file path and fragment
@@ -428,76 +381,47 @@ func splitPathAndFragment(path string) (string, string) {
 	return parts[0], parts[1]
 }
 
-// GetMetadata returns the metadata of the EPUB
-func (e *Epub) GetMetadata() (*Metadata, error) {
-	var pkg Package
-
-	rootFile, err := e.File.Open(e.RootFile)
-	if err != nil {
-		return nil, err
-	}
-	defer rootFile.Close()
-
-	decoder := xml.NewDecoder(rootFile)
-	err = decoder.Decode(&pkg)
-	if err != nil {
-		return nil, err
-	}
-
-	metadata := &Metadata{}
-
-	for _, item := range pkg.Metadata {
-		tagName := item.XMLName.Local
-
-		switch tagName {
-		case "title":
-			metadata.Title = item.Content
-		case "creator":
-			metadata.Creator = item.Content
-		case "publisher":
-			metadata.Publisher = item.Content
-		case "language":
-			metadata.Language = item.Content
-		case "identifier":
-			metadata.Identifier = item.Content
-		case "date":
-			metadata.Date = item.Content
-		case "description":
-			metadata.Description = item.Content
-		case "rights":
-			metadata.Rights = item.Content
-		default:
-			metadata.OtherMeta = append(metadata.OtherMeta, []string{tagName, item.Content})
-		}
-	}
-
-	return metadata, nil
+// GetChapterContents returns the content of a chapter
+// include text lines and images
+type ChapterContent struct {
+	Lines  []string
+	Text   string
+	Images []string
 }
 
-// GetChapterContent returns the content of a chapter
-func (e *Epub) GetChapterContent(index int) (string, error) {
-	if index < 0 || index >= len(e.Contents) {
-		return "", fmt.Errorf("chapter index out of range")
+func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
+	if index < 0 || index >= e.TOC.Len() {
+		return nil, fmt.Errorf("chapter index out of range")
 	}
 
+	tocValue := e.TOC.Slice[index]
 	// Remove "./" prefix if present
-	chapterPath := e.Contents[index]
+	chapterPath := tocValue.Path
 	if strings.HasPrefix(chapterPath, "./") {
 		chapterPath = chapterPath[2:]
 	}
 
 	chapterFile, err := e.File.Open(chapterPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer chapterFile.Close()
 
 	content, err := io.ReadAll(chapterFile)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return string(content), nil
+	parser := parser.NewHTMLParser()
+	if err := parser.Parse(string(content)); err != nil {
+		return nil, err
+	}
+
+	return &ChapterContent{
+		Lines:  parser.GetLines(),
+		Text:   strings.Join(parser.GetLines(), "\n"),
+		Images: parser.GetImages(),
+	}, nil
 }
 
 // Close closes the EPUB file

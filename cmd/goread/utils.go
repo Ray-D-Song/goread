@@ -132,15 +132,15 @@ func dumpEpub(filePath string) {
 	defer book.Close()
 
 	// Dump the content
-	for i := range book.Contents {
-		content, err := book.GetChapterContent(i)
+	for i := range book.TOC.Slice {
+		content, err := book.GetChapterContents(i)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading chapter: %v\n", err)
 			continue
 		}
 
 		// Parse the HTML content
-		text, err := parser.DumpHTML(content)
+		text, err := parser.DumpHTML(content.Text)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error parsing HTML: %v\n", err)
 			continue

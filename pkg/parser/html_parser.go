@@ -298,7 +298,7 @@ func DumpHTML(content string) (string, error) {
 		return "", err
 	}
 
-	lines := parser.GetLines()
+	lines := parser.text
 	var buf bytes.Buffer
 
 	for _, line := range lines {
