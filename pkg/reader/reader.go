@@ -114,7 +114,7 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				if r.UI.SearchPattern != "" {
 					r.searchNext()
 				} else {
-					r.nextChapter(r.CurrentChapter, pos, pctg)
+					r.nextChapter(pos, pctg)
 				}
 				return nil
 			case 'N':
@@ -122,11 +122,11 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				if r.UI.SearchPattern != "" {
 					r.searchPrev()
 				} else {
-					r.prevChapter(r.CurrentChapter, pos, pctg)
+					r.prevChapter(pos, pctg)
 				}
 				return nil
 			case 'p':
-				r.prevChapter(r.CurrentChapter, pos, pctg)
+				r.prevChapter(pos, pctg)
 				return nil
 			case 'j':
 				r.scrollDown()

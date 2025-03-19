@@ -96,8 +96,13 @@ func (r *Reader) jumpToPosition(index int, pos int, pctg float64) {
 }
 
 // nextChapter moves to the next chapter
-func (r *Reader) nextChapter(index int, pos int, pctg float64) {
-	utils.DebugLog("[INFO:nextChapter] Moving to next chapter from index: %d", index)
+func (r *Reader) nextChapter(pos int, pctg float64) {
+	utils.DebugLog("[INFO:nextChapter] Moving to next chapter from index: %d", r.CurrentChapter)
+	r.CurrentChapter++
+	err := r.readChapter(r.CurrentChapter, pctg)
+	if err != nil {
+		r.UI.StatusBar.SetText(fmt.Sprintf("Error reading chapter: %v", err))
+	}
 	// If there's an active search pattern, try to find the first occurrence in the new chapter
 	if r.UI.SearchPattern != "" {
 		re, err := regexp.Compile(r.UI.SearchPattern)
@@ -127,8 +132,13 @@ func (r *Reader) nextChapter(index int, pos int, pctg float64) {
 }
 
 // prevChapter moves to the previous chapter
-func (r *Reader) prevChapter(index int, pos int, pctg float64) {
-	utils.DebugLog("[INFO:prevChapter] Moving to previous chapter from index: %d", index)
+func (r *Reader) prevChapter(pos int, pctg float64) {
+	utils.DebugLog("[INFO:prevChapter] Moving to previous chapter from index: %d", r.CurrentChapter)
+	r.CurrentChapter--
+	err := r.readChapter(r.CurrentChapter, pctg)
+	if err != nil {
+		r.UI.StatusBar.SetText(fmt.Sprintf("Error reading chapter: %v", err))
+	}
 
 	// If there's an active search pattern, try to find the first occurrence in the new chapter
 	if r.UI.SearchPattern != "" {

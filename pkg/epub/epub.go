@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/ray-d-song/goread/pkg/parser"
 	"github.com/ray-d-song/goread/pkg/utils"
 )
@@ -22,6 +23,8 @@ var namespaces = map[string]string{
 }
 
 type TOCValue struct {
+	ID       string
+	ParentID string
 	Title    string
 	Path     string
 	Fragment string
@@ -319,7 +322,7 @@ func (e *Epub) generateTOC() error {
 		// Process all nav points recursively
 		var prev *utils.DItem[TOCValue]
 		for i := range ncx.NavPoints {
-			prev = processNestedNavPoints(ncx.NavPoints[i], e.TOC, prev, 0)
+			prev = processNestedNavPoints(ncx.NavPoints[i], e.TOC, prev, 0, uuid.New().String())
 		}
 	} else {
 		// Parse as navigation document (EPUB 3.0 style)
@@ -343,6 +346,7 @@ func (e *Epub) generateTOC() error {
 				Fragment: fragment,
 				Level:    0, // For now we don't handle nested nav links in EPUB 3.0
 				IsDir:    false,
+				ParentID: "",
 			}
 			newNode := e.TOC.Add(newItem, prev)
 			prev = newNode
@@ -352,21 +356,23 @@ func (e *Epub) generateTOC() error {
 	return nil
 }
 
-func processNestedNavPoints(navPoint NavPoint, list *utils.DList[TOCValue], prev *utils.DItem[TOCValue], level int) *utils.DItem[TOCValue] {
+func processNestedNavPoints(navPoint NavPoint, list *utils.DList[TOCValue], prev *utils.DItem[TOCValue], level int, parentID string) *utils.DItem[TOCValue] {
 	path, fragment := splitPathAndFragment(navPoint.Content.Src)
 	newItem := TOCValue{
+		ID:       uuid.New().String(),
 		Title:    navPoint.NavLabel.Text,
 		Path:     path,
 		Fragment: fragment,
 		Level:    level,
 		IsDir:    len(navPoint.NavPoints) > 0,
+		ParentID: parentID,
 	}
 
 	newNode := list.Add(newItem, prev)
 
 	// Recursively process child nav points
 	for i := range navPoint.NavPoints {
-		newNode = processNestedNavPoints(navPoint.NavPoints[i], list, newNode, level+1)
+		newNode = processNestedNavPoints(navPoint.NavPoints[i], list, newNode, level+1, newItem.ID)
 	}
 
 	return newNode
