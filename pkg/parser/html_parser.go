@@ -45,7 +45,15 @@ func NewHTMLParser() *HTMLParser {
 }
 
 // Parse parses HTML content and converts it to lines of text
-func (p *HTMLParser) Parse(content string) error {
+func (p *HTMLParser) Parse(content string, startAnchor string, nextAnchor string) error {
+	var err error
+	if startAnchor != "" {
+		content, err = ExtractBetweenAnchors(content, startAnchor, nextAnchor)
+		if err != nil {
+			return err
+		}
+	}
+
 	doc, err := html.Parse(strings.NewReader(content))
 	if err != nil {
 		return err
@@ -293,7 +301,7 @@ func formatWrappedLine(line string, width int) []string {
 // DumpHTML dumps the HTML content as plain text
 func DumpHTML(content string) (string, error) {
 	parser := NewHTMLParser()
-	err := parser.Parse(content)
+	err := parser.Parse(content, "", "")
 	if err != nil {
 		return "", err
 	}

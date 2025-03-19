@@ -5,6 +5,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/ray-d-song/goread/pkg/epub"
+	"github.com/ray-d-song/goread/pkg/ui"
+	"github.com/ray-d-song/goread/pkg/utils"
 	"github.com/rivo/tview"
 )
 
@@ -51,20 +53,85 @@ func (r *Reader) showMetadata() {
 // showTOC shows the table of contents
 func (r *Reader) showTOC(index int) {
 	root := tview.NewTreeNode("TOC")
-	tree := tview.NewTreeView().SetRoot(root).SetCurrentNode(root)
-	var l1Toc []epub.TOCValue
+	tree := tview.NewTreeView()
+	switch r.UI.ColorScheme {
+	case ui.DefaultColorScheme:
+		tree.SetBackgroundColor(tcell.ColorDefault)
+		tree.SetGraphicsColor(tcell.ColorDefault)
+		tree.SetTitleColor(tcell.ColorDefault)
+	case ui.DarkColorScheme:
+		tree.SetBackgroundColor(tcell.ColorDarkSlateGray)
+		tree.SetGraphicsColor(tcell.ColorWhite)
+		tree.SetTitleColor(tcell.ColorWhite)
+	case ui.LightColorScheme:
+		tree.SetBackgroundColor(tcell.ColorWhite)
+		tree.SetGraphicsColor(tcell.ColorBlack)
+		tree.SetTitleColor(tcell.ColorBlack)
+	}
+	tree.SetRoot(root)
+	tree.SetCurrentNode(root)
+	var l0Toc []epub.TOCValue
 
+	var nodes []*tview.TreeNode
 	add := func(target *tview.TreeNode, items []epub.TOCValue) {
 		for _, item := range items {
 			node := tview.NewTreeNode(item.Title)
 			node.SetReference(item)
 			node.SetSelectable(true)
+			node.SetExpanded(false)
+			switch r.UI.ColorScheme {
+			case ui.DefaultColorScheme:
+				node.SetTextStyle(tcell.StyleDefault)
+				node.SetSelectedTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkCyan))
+			case ui.DarkColorScheme:
+				node.SetTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkSlateGray))
+				node.SetSelectedTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkBlue))
+			case ui.LightColorScheme:
+				node.SetTextStyle(tcell.StyleDefault.Background(tcell.ColorWhite))
+				node.SetSelectedTextStyle(tcell.StyleDefault.Background(tcell.ColorLightBlue))
+			}
 			target.AddChild(node)
+			nodes = append(nodes, node)
 		}
 	}
 
+	var resetCapture func()
+	var resetContent func()
+	// Set the selected function for the tree
 	tree.SetSelectedFunc(func(node *tview.TreeNode) {
-		item := node.GetReference().(epub.TOCValue)
+		utils.DebugLog("[INFO:showTOC] Selected node: %s", node.GetText())
+		if node.GetReference() == nil {
+			utils.DebugLog("[INFO:showTOC] No reference found for node: %s", node.GetText())
+			return
+		}
+		item, ok := node.GetReference().(epub.TOCValue)
+		if !ok {
+			utils.DebugLog("[INFO:showTOC] No reference found for node: %s", node.GetText())
+			return
+		}
+		if !item.IsDir {
+			resetCapture()
+			resetContent()
+			index, err := r.Book.GetChapterIndex(item.ID)
+			if err != nil {
+				utils.DebugLog("[INFO:showTOC] Error getting chapter index: %v", err)
+				return
+			}
+			r.readChapter(index, 0)
+			return
+		}
+		if node.IsExpanded() {
+			utils.DebugLog("[INFO:showTOC] Dir is already expanded: %s", node.GetText())
+			resetCapture()
+			resetContent()
+			index, err := r.Book.GetChapterIndex(item.ID)
+			if err != nil {
+				utils.DebugLog("[INFO:showTOC] Error getting chapter index: %v", err)
+				return
+			}
+			r.readChapter(index, 0)
+			return
+		}
 		var children []epub.TOCValue
 		for _, child := range r.Book.TOC.Slice {
 			if child.ParentID == item.ID {
@@ -72,62 +139,54 @@ func (r *Reader) showTOC(index int) {
 			}
 		}
 		add(node, children)
-		node.SetExpanded(!node.IsExpanded())
+		node.SetExpanded(true)
 	})
 
 	for _, toc := range r.Book.TOC.Slice {
-		if toc.Level == 1 {
-			l1Toc = append(l1Toc, toc)
+		if toc.Level == 0 {
+			l0Toc = append(l0Toc, toc)
 		}
 	}
-	add(root, l1Toc)
-
-	r.UI.SetTempContent(tree)
+	add(root, l0Toc)
+	currentToc := r.Book.TOC.Slice[index]
+	var pid string = currentToc.ParentID
+	// recursively find currentToc's parent
+	for l := currentToc.Level; l >= 0; l-- {
+		for _, item := range r.Book.TOC.Slice {
+			if item.ID == pid {
+				pid = item.ParentID
+				utils.DebugLog("[INFO:showTOC] Found parent: %s", item.Title)
+				break
+			}
+		}
+	}
+	// now pid is the root of the current toc
+	// find the root in l0Toc
+	utils.DebugLog("[INFO:showTOC] Finding root %s", pid)
+	for _, item := range l0Toc {
+		utils.DebugLog("[INFO:showTOC] Checking item: %s %s", item.Title, item.ID)
+		if item.ID == pid {
+			utils.DebugLog("[INFO:showTOC] Found root: %s", item.Title)
+		}
+	}
+	resetContent = r.UI.SetTempContent(tree)
 
 	r.UI.App.SetFocus(tree)
 
-	var resetCapture func()
 	resetCapture = r.UI.SetCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape, tcell.KeyTab:
 			resetCapture()
+			resetContent()
 			return nil
 		case tcell.KeyEnter:
-			selectedNode := tree.GetCurrentNode()
-			if selectedNode == nil {
-				return nil
-			}
-
-			if selectedNode.GetReference() == nil {
-				return nil
-			}
-
-			item := selectedNode.GetReference().(epub.TOCValue)
-
-			if item.IsDir && selectedNode.IsExpanded() {
-				var children []epub.TOCValue
-				for _, child := range r.Book.TOC.Slice {
-					if child.ParentID == item.ID {
-						children = append(children, child)
-					}
-				}
-				add(selectedNode, children)
-				selectedNode.SetExpanded(!selectedNode.IsExpanded())
-			} else {
-				for i, toc := range r.Book.TOC.Slice {
-					if toc.ID == item.ID {
-						resetCapture()
-						r.readChapter(i, 0)
-						return nil
-					}
-				}
-			}
-			return nil
+			return event
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight, tcell.KeyHome, tcell.KeyEnd, tcell.KeyPgUp, tcell.KeyPgDn:
 			return event
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
+				resetContent()
 				resetCapture()
 				return nil
 			case 'j':

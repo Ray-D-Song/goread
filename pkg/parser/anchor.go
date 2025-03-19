@@ -23,12 +23,13 @@ func ExtractBetweenAnchors(content string, startAnchor string, nextAnchor string
 	}
 
 	// Try string-based approach first (faster and simpler)
-	startPos, endPos := findAnchorPositions(content, startAnchor, nextAnchor)
-	if startPos != -1 {
+	_, endPos, startTagPos := findAnchorPositions(content, startAnchor, nextAnchor)
+	if startTagPos != -1 {
 		if endPos == -1 {
 			endPos = len(content)
 		}
-		extractedContent := content[startPos:endPos]
+		// Include the start anchor tag by using startTagPos instead of startPos
+		extractedContent := content[startTagPos:endPos]
 
 		// Validate the extracted content
 		if strings.TrimSpace(extractedContent) != "" {
@@ -44,7 +45,7 @@ func ExtractBetweenAnchors(content string, startAnchor string, nextAnchor string
 
 	// Extract content between anchors using DOM traversal
 	var buf bytes.Buffer
-	found, err := extractContentDOM(doc, &buf, startAnchor, nextAnchor)
+	found, err := extractContentDOM(doc, &buf, startAnchor, nextAnchor, true)
 	if err != nil {
 		return "", err
 	}
@@ -61,7 +62,7 @@ func ExtractBetweenAnchors(content string, startAnchor string, nextAnchor string
 }
 
 // extractContentDOM extracts content between anchors from the HTML node tree using DOM traversal
-func extractContentDOM(n *html.Node, buf *bytes.Buffer, startAnchor, nextAnchor string) (bool, error) {
+func extractContentDOM(n *html.Node, buf *bytes.Buffer, startAnchor, nextAnchor string, includeStartTag bool) (bool, error) {
 	// State variables
 	var (
 		found     bool
@@ -105,10 +106,23 @@ func extractContentDOM(n *html.Node, buf *bytes.Buffer, startAnchor, nextAnchor 
 			found = true
 			capturing = true
 
-			// Render the content of the start anchor node (not the node itself)
-			if err := renderNodeContent(node, buf); err != nil {
-				// If there's an error, just continue without capturing this node
-				// but still mark it as found
+			// Render the start anchor node itself (include the tag) if requested
+			if includeStartTag {
+				if err := renderNode(node, buf); err != nil {
+					// If there's an error, just continue without capturing this node
+					// but still mark it as found
+				}
+			} else {
+				// Render just the content of the start anchor node (not the node itself)
+				if err := renderNodeContent(node, buf); err != nil {
+					// If there's an error, just continue without capturing this node
+					// but still mark it as found
+				}
+			}
+
+			// If we rendered the node completely, we don't need to traverse its children again
+			if includeStartTag {
+				return false
 			}
 
 			// Continue traversal to find the end anchor
@@ -157,10 +171,12 @@ func extractContentDOM(n *html.Node, buf *bytes.Buffer, startAnchor, nextAnchor 
 }
 
 // findAnchorPositions finds the positions of the start and end anchors in the HTML content.
-// Returns the position after the start anchor tag and the position before the end anchor tag.
-func findAnchorPositions(content string, startAnchor, nextAnchor string) (int, int) {
+// Returns the position after the start anchor tag, the position before the end anchor tag,
+// and the position of the start of the start anchor tag.
+func findAnchorPositions(content string, startAnchor, nextAnchor string) (int, int, int) {
 	startPos := -1
 	endPos := -1
+	startTagPos := -1
 
 	// Define patterns to look for
 	startPatterns := []string{
@@ -181,6 +197,15 @@ func findAnchorPositions(content string, startAnchor, nextAnchor string) (int, i
 	for _, pattern := range startPatterns {
 		pos := strings.Index(content, pattern)
 		if pos != -1 {
+			// Go back to find the beginning of the tag containing the anchor
+			tagStart := pos
+			for tagStart > 0 && content[tagStart] != '<' {
+				tagStart--
+			}
+			if tagStart >= 0 {
+				startTagPos = tagStart
+			}
+
 			// Find the end of the tag containing the anchor
 			closePos := strings.Index(content[pos:], ">")
 			if closePos != -1 {
@@ -207,5 +232,5 @@ func findAnchorPositions(content string, startAnchor, nextAnchor string) (int, i
 		}
 	}
 
-	return startPos, endPos
+	return startPos, endPos, startTagPos
 }

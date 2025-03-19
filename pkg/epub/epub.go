@@ -387,6 +387,15 @@ func splitPathAndFragment(path string) (string, string) {
 	return parts[0], parts[1]
 }
 
+func (e *Epub) GetChapterIndex(id string) (int, error) {
+	for i, toc := range e.TOC.Slice {
+		if toc.ID == id {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("chapter index not found")
+}
+
 // GetChapterContents returns the content of a chapter
 // include text lines and images
 type ChapterContent struct {
@@ -419,7 +428,7 @@ func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
 	}
 
 	parser := parser.NewHTMLParser()
-	if err := parser.Parse(string(content)); err != nil {
+	if err := parser.Parse(string(content), tocValue.Fragment, ""); err != nil {
 		return nil, err
 	}
 

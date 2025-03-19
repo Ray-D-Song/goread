@@ -304,7 +304,7 @@ func (r *Reader) openImage() {
 
 		// Parse the HTML content
 		htmlParser := parser.NewHTMLParser()
-		err = htmlParser.Parse(chapterContent.Text)
+		err = htmlParser.Parse(chapterContent.Text, "", "")
 		if err != nil {
 			r.UI.SetStatus(fmt.Sprintf("Error parsing HTML: %v", err))
 			return
