@@ -201,6 +201,7 @@ func (ui *UI) SetTempContent(view tview.Primitive) func() {
 	originalContent := ui.Content
 	hasLeftPanel := false
 	hasRightPanel := false
+	originalWidth := ui.Width
 
 	// check if the left panel exist
 	for i := 0; i < ui.Horizontal.GetItemCount(); i++ {
@@ -241,6 +242,12 @@ func (ui *UI) SetTempContent(view tview.Primitive) func() {
 		ui.Horizontal.AddItem(originalContent, 0, 1, true)
 		if hasRightPanel {
 			ui.Horizontal.AddItem(ui.RightPanel, 0, 1, false)
+		}
+
+		// restore the original width if it was set
+		if originalWidth > 0 {
+			ui.Horizontal.ResizeItem(originalContent, originalWidth, 0)
+			ui.Width = originalWidth
 		}
 	}
 }
