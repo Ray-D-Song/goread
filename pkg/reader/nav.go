@@ -61,14 +61,12 @@ func (r *Reader) halfPageDown(pos int) {
 
 // goToStart goes to the start of the chapter
 func (r *Reader) goToStart() {
-	r.UI.TextArea.ScrollTo(0, 0)
+	r.UI.TextArea.ScrollToBeginning()
 }
 
 // goToEnd goes to the end of the chapter
 func (r *Reader) goToEnd() {
-	text := r.UI.TextArea.GetText(false)
-	lines := strings.Split(text, "\n")
-	r.UI.TextArea.ScrollTo(len(lines)-1, 0)
+	r.UI.TextArea.ScrollToEnd()
 }
 
 // jumpToPosition jumps to a marked position

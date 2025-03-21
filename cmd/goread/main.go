@@ -27,12 +27,13 @@ var (
 )
 
 func main() {
-	// initialize debug logger
+	// Initialize debug logger
 	utils.InitDebugLogger()
 	defer utils.CloseDebugLogger()
 
 	flag.Parse()
 
+	// Handle help and version flags first (no config needed)
 	if *helpFlag || *helpLongFlag {
 		printHelp()
 		os.Exit(0)
@@ -43,11 +44,17 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Load configuration
+	// Load configuration once for all subsequent operations
 	cfg, err := config.NewConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Handle history flag separately
+	if *historyFlag {
+		printHistory(cfg)
+		os.Exit(0)
 	}
 
 	// Get the file to read
@@ -70,14 +77,9 @@ func main() {
 		// Try to match the arguments against the history
 		filePath = findFileInHistory(cfg, args)
 		if filePath == "" {
-			if *historyFlag {
-				printHistory(cfg)
-				os.Exit(0)
-			} else {
-				printHelp()
-				fmt.Fprintf(os.Stderr, "Error: No matching file found in history\n")
-				os.Exit(1)
-			}
+			printHelp()
+			fmt.Fprintf(os.Stderr, "Error: No matching file found in history\n")
+			os.Exit(1)
 		}
 	}
 

@@ -25,30 +25,10 @@ func (p *HTMLParser) handleStartTag(n *html.Node) {
 		p.isPref = true
 		// For all pre tags, we'll treat them as code blocks
 		p.isCode = true
-
-		// Check if there's a class attribute to determine code type
-		for _, attr := range n.Attr {
-			if attr.Key == "class" {
-				// Check if it contains language identifier like "language-go", "lang-python", etc.
-				langMatch := regexp.MustCompile(`(?:language|lang)-(\w+)`).FindStringSubmatch(attr.Val)
-				if len(langMatch) > 1 {
-					p.codeType = langMatch[1]
-				}
-			}
-		}
 	} else if tag == "code" {
 		// If already inside a pre tag, this is a code block
 		if p.isPref {
 			p.isCode = true
-			// Check if there's a class attribute to determine code type
-			for _, attr := range n.Attr {
-				if attr.Key == "class" {
-					langMatch := regexp.MustCompile(`(?:language|lang)-(\w+)`).FindStringSubmatch(attr.Val)
-					if len(langMatch) > 1 {
-						p.codeType = langMatch[1]
-					}
-				}
-			}
 		}
 	} else if tag == "li" {
 		p.isBull = true
@@ -108,7 +88,6 @@ func (p *HTMLParser) handleEndTag(n *html.Node) {
 		}
 		p.isPref = false
 		p.isCode = false
-		p.codeType = ""
 	} else if tag == "code" {
 		if p.isPref && p.isCode {
 			p.isCode = false

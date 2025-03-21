@@ -19,8 +19,7 @@ type HTMLParser struct {
 	isInde     bool
 	isBull     bool
 	isPref     bool
-	isCode     bool   // Flag indicating if we're inside a code block
-	codeType   string // Code type (language)
+	isCode     bool // Flag indicating if we're inside a code block
 	isHidden   bool
 	headIDs    map[int]bool
 	indeIDs    map[int]bool
@@ -102,7 +101,12 @@ func (p *HTMLParser) handleText(data string) {
 
 	// If we have accumulated text, add it to the current line
 	if p.buffer != "" {
-		p.text[len(p.text)-1] += p.buffer
+		// Apply code highlighting if in a code block
+		if p.isCode {
+			p.text[len(p.text)-1] += formatCodeLine(p.buffer, "")
+		} else {
+			p.text[len(p.text)-1] += p.buffer
+		}
 		p.buffer = ""
 
 		// Mark the line with the appropriate type
@@ -130,172 +134,6 @@ func (p *HTMLParser) GetLines() []string {
 // GetImages returns the images found in the HTML
 func (p *HTMLParser) GetImages() []string {
 	return p.images
-}
-
-// FormatLines formats the lines of text with the given width
-func (p *HTMLParser) FormatLines(width int) []string {
-	if width <= 0 {
-		return p.text
-	}
-
-	var formattedLines []string
-
-	for i, line := range p.text {
-		if p.headIDs[i] {
-			// Center the heading
-			padding := (width / 2) - (len(line) / 2)
-			if padding < 0 {
-				padding = 0
-			}
-			formattedLines = append(formattedLines, strings.Repeat(" ", padding)+line)
-			formattedLines = append(formattedLines, "")
-		} else if p.indeIDs[i] {
-			// Indent the line
-			formattedLines = append(formattedLines, formatIndentedLine(line, width-3, "   "))
-			formattedLines = append(formattedLines, "")
-		} else if p.bullIDs[i] {
-			// Format as a bullet point
-			formattedLines = append(formattedLines, formatBulletLine(line, width-3))
-			formattedLines = append(formattedLines, "")
-		} else if p.prefIDs[i] {
-			// Format as preformatted text
-			if p.codeIDs[i] {
-				// If it's code, add syntax highlighting
-				formattedLines = append(formattedLines, formatCodeLine(line, width-6, "   ", p.codeType))
-			} else {
-				formattedLines = append(formattedLines, formatPreformattedLine(line, width-6, "   "))
-			}
-			formattedLines = append(formattedLines, "")
-		} else {
-			// Wrap the line to the given width
-			formattedLines = append(formattedLines, formatWrappedLine(line, width)...)
-			formattedLines = append(formattedLines, "")
-		}
-	}
-
-	return formattedLines
-}
-
-// formatIndentedLine formats an indented line
-func formatIndentedLine(line string, width int, indent string) string {
-	if line == "" {
-		return ""
-	}
-
-	var result []string
-	words := strings.Fields(line)
-	var currentLine string
-
-	for _, word := range words {
-		if len(currentLine)+len(word)+1 <= width {
-			if currentLine == "" {
-				currentLine = word
-			} else {
-				currentLine += " " + word
-			}
-		} else {
-			result = append(result, indent+currentLine)
-			currentLine = word
-		}
-	}
-
-	if currentLine != "" {
-		result = append(result, indent+currentLine)
-	}
-
-	return strings.Join(result, "\n")
-}
-
-// formatBulletLine formats a bullet point line
-func formatBulletLine(line string, width int) string {
-	if line == "" {
-		return ""
-	}
-
-	var result []string
-	words := strings.Fields(line)
-	var currentLine string
-
-	for i, word := range words {
-		if i == 0 {
-			currentLine = " - " + word
-		} else if len(currentLine)+len(word)+1 <= width {
-			currentLine += " " + word
-		} else {
-			result = append(result, currentLine)
-			currentLine = "   " + word
-		}
-	}
-
-	if currentLine != "" {
-		result = append(result, currentLine)
-	}
-
-	return strings.Join(result, "\n")
-}
-
-// formatPreformattedLine formats a preformatted line
-func formatPreformattedLine(line string, width int, indent string) string {
-	if line == "" {
-		return ""
-	}
-
-	var result []string
-	lines := strings.Split(line, "\n")
-
-	for _, l := range lines {
-		var currentLine string
-		words := strings.Fields(l)
-
-		for _, word := range words {
-			if len(currentLine)+len(word)+1 <= width {
-				if currentLine == "" {
-					currentLine = word
-				} else {
-					currentLine += " " + word
-				}
-			} else {
-				result = append(result, indent+currentLine)
-				currentLine = word
-			}
-		}
-
-		if currentLine != "" {
-			result = append(result, indent+currentLine)
-		}
-	}
-
-	return strings.Join(result, "\n")
-}
-
-// formatWrappedLine formats a wrapped line
-func formatWrappedLine(line string, width int) []string {
-	if line == "" {
-		return []string{""}
-	}
-
-	var result []string
-	var currentLine string
-	words := strings.Fields(line)
-
-	for _, word := range words {
-		if len(currentLine)+len(word)+1 <= width {
-			if currentLine == "" {
-				currentLine = word
-			} else {
-				currentLine += " " + word
-			}
-		} else {
-			result = append(result, currentLine)
-			currentLine = word
-		}
-	}
-
-	if currentLine != "" {
-		result = append(result, currentLine)
-	}
-
-	return result
 }
 
 // DumpHTML dumps the HTML content as plain text

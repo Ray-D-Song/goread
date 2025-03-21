@@ -459,22 +459,22 @@ func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
 		chapterPath = chapterPath[2:]
 	}
 
-	// 尝试打开章节文件
+	// try to open the chapter file
 	chapterFile, err := e.File.Open(chapterPath)
 	if err != nil {
-		// 如果打开失败，尝试在 OEBPS 目录下查找
+		// if failed to open the chapter file, try to find it in OEBPS directory
 		if !strings.HasPrefix(chapterPath, "OEBPS/") {
 			oebpsPath := "OEBPS/" + chapterPath
 			utils.DebugLog("[INFO:GetChapterContents] Trying to find chapter in OEBPS directory: %s", oebpsPath)
 
-			// 检查 OEBPS 路径下的文件是否存在
+			// check if the file exists in OEBPS directory
 			oebpsFile, oebpsErr := e.File.Open(oebpsPath)
 			if oebpsErr == nil {
 				utils.DebugLog("[INFO:GetChapterContents] Found chapter in OEBPS directory")
 				chapterFile = oebpsFile
 				err = nil
 			} else {
-				return nil, err // 如果在 OEBPS 目录下也找不到，返回原始错误
+				return nil, err // if not found in OEBPS directory, return the original error
 			}
 		} else {
 			return nil, err

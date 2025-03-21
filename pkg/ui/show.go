@@ -59,6 +59,10 @@ func (ui *UI) ShowMetadata(metadata [][]string) error {
 			return event
 		case tcell.KeyRune:
 			switch event.Rune() {
+			case 'q':
+				resetCapture()
+				resetContent()
+				return nil
 			case 'j':
 				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
 			case 'k':
@@ -93,25 +97,20 @@ Goread - EPUB Reader
 Key Bindings:
     Help             : ?
     Quit             : q
-    Scroll down      : DOWN      j
-    Scroll up        : UP        k
+    ToC              : t
+    Next chapter     : n
+    Prev chapter     : N
+    Search           : /
+    Scroll down      : j
+    Scroll up        : k
     Half screen up   : C-u
     Half screen dn   : C-d
-    Page down        : PGDN      RIGHT   SPC
-    Page up          : PGUP      LEFT
-    Next chapter     : n
-    Prev chapter     : p
-    Beginning of ch  : HOME      g
-    End of ch        : END       G
+    Beginning of ch  : g
+    End of ch        : G
     Open image       : o
-    Search           : /
-    Next Occurrence  : n
-    Prev Occurrence  : N
-    Toggle width     : =
-    ToC              : TAB       t
+    Increase width   : +
+    Decrease width   : -
     Metadata         : m
-    Mark pos to n    : b[n]
-    Jump to pos n    : ` + "`" + `[n]
     Switch colorsch  : c
 		
 Press Esc or Enter to close
@@ -152,6 +151,10 @@ Press Esc or Enter to close
 			return event
 		case tcell.KeyRune:
 			switch event.Rune() {
+			case 'q':
+				resetCapture()
+				resetContent()
+				return nil
 			case 'j':
 				row, col := helpContent.GetScrollOffset()
 				helpContent.ScrollTo(row+1, col)

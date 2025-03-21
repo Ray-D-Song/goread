@@ -6,93 +6,29 @@ import (
 )
 
 // formatCodeLine formats a code line with syntax highlighting
-func formatCodeLine(line string, width int, indent string, codeType string) string {
+func formatCodeLine(line string, indent string) string {
 	if line == "" {
 		return ""
 	}
 
 	// Apply syntax highlighting
-	highlightedLine := applyCodeHighlighting(line, codeType)
+	highlightedLine := applyCodeHighlighting(line)
 
 	// Handle line wrapping
 	var result []string
 	lines := strings.Split(highlightedLine, "\n")
 
 	for _, l := range lines {
-		// Since we've added color markers, we can't simply split by words
-		// Simplified approach: only wrap when exceeding width
-		if len(stripColorCodes(l)) <= width {
-			result = append(result, indent+l)
-		} else {
-			// For long lines, simply append as is (this might break color markers)
-			// In a real application, more sophisticated handling would be needed
-			result = append(result, indent+l)
-		}
+		result = append(result, indent+l)
 	}
 
 	return strings.Join(result, "\n")
 }
 
-// stripColorCodes removes tview color codes to calculate actual text length
-func stripColorCodes(text string) string {
-	re := regexp.MustCompile(`\[[^]]*\]`)
-	return re.ReplaceAllString(text, "")
-}
-
 // applyCodeHighlighting applies syntax highlighting based on code type
-func applyCodeHighlighting(code string, codeType string) string {
-	// Convert code type to lowercase for case-insensitive comparison
-	lowerCodeType := strings.ToLower(codeType)
-
-	// Apply specific highlighting based on code type
-	if lowerCodeType == "sql" {
-		return highlightSQL(code)
-	}
-
+func applyCodeHighlighting(code string) string {
 	// Use universal highlighting for all other code blocks
 	return highlightUniversal(code)
-}
-
-// highlightSQL adds highlighting specifically for SQL code
-func highlightSQL(code string) string {
-	// Split the code into tokens (words, symbols, etc.)
-	tokens := tokenizeCode(code)
-
-	// Classify and color each token
-	var result strings.Builder
-	for _, token := range tokens {
-		result.WriteString(colorizeSQLToken(token))
-	}
-
-	return result.String()
-}
-
-// colorizeSQLToken applies color to an SQL token based on its type
-func colorizeSQLToken(token string) string {
-	// Check for strings (double quotes, single quotes, backticks)
-	if (strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"")) ||
-		(strings.HasPrefix(token, "'") && strings.HasSuffix(token, "'")) ||
-		(strings.HasPrefix(token, "`") && strings.HasSuffix(token, "`")) {
-		return "[#FFFF00]" + token + "[-]" // Yellow for strings
-	}
-
-	// Check for comments
-	if strings.HasPrefix(token, "//") || strings.HasPrefix(token, "#") || strings.HasPrefix(token, "--") {
-		return "[#00FF00]" + token + "[-]" // Green for comments
-	}
-
-	// Check for numbers
-	if regexp.MustCompile(`^\d+(\.\d+)?$`).MatchString(token) {
-		return "[#FF8800]" + token + "[-]" // Orange for numbers
-	}
-
-	// Check for SQL keywords (case insensitive)
-	if isSQLKeyword(token) {
-		return "[#FF00AA]" + token + "[-]" // Pink for SQL keywords
-	}
-
-	// Return the token as is if it doesn't match any category
-	return token
 }
 
 // highlightUniversal adds highlighting for common programming language constructs

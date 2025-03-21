@@ -191,7 +191,7 @@ func (r *Reader) highlightSearchResults(re *regexp.Regexp, focusedLineIndex int)
 // clearSearchHighlights clears all search highlights from the text
 func (r *Reader) clearSearchHighlights() {
 	// Get the current text without color codes
-	text := r.UI.TextArea.GetText(false)
+	text := r.UI.TextArea.GetText(true)
 	lines := strings.Split(text, "\n")
 
 	// Clear the text area

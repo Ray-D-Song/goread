@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,13 +26,12 @@ func findFileInHistory(cfg *config.Config, args []string) string {
 	// Check if the first argument is a number
 	if len(args) == 1 {
 		if num, err := strconv.Atoi(args[0]); err == nil {
-			// Get the nth file from the history
-			var i int
-			for file := range cfg.States {
-				if i == num-1 {
-					return file
-				}
-				i++
+			// Get the files in the same order as displayed in history
+			files := getOrderedHistoryFiles(cfg)
+
+			// The number is 1-indexed (as shown in the history output)
+			if num > 0 && num <= len(files) {
+				return files[num-1]
 			}
 		}
 	}
@@ -60,9 +60,25 @@ func findFileInHistory(cfg *config.Config, args []string) string {
 	return bestMatch
 }
 
+// getOrderedHistoryFiles returns files from config in a consistent order
+func getOrderedHistoryFiles(cfg *config.Config) []string {
+	var files []string
+	for file := range cfg.States {
+		files = append(files, file)
+	}
+
+	// Go's map iteration is random, so ensure consistent ordering
+	// Here we sort by the file path for consistency
+	// Note: we could add more sorting logic here if needed
+	sort.Strings(files)
+
+	return files
+}
+
 // printHelp prints the help message
 func printHelp() {
-	fmt.Println(`Usages:
+	fmt.Println(`
+Usages:
     goread             read last epub
     goread EPUBFILE    read EPUBFILE
     goread STRINGS     read matched STRINGS from history
@@ -74,50 +90,52 @@ Options:
     -d              dump epub
     -h, --help      print short, long help
 
-Key Binding:
+Key Bindings:
     Help             : ?
     Quit             : q
-    Scroll down      : DOWN      j
-    Scroll up        : UP        k
+    ToC              : t
+    Next chapter     : n
+    Prev chapter     : N
+    Search           : /
+    Scroll down      : j
+    Scroll up        : k
     Half screen up   : C-u
     Half screen dn   : C-d
-    Page down        : PGDN      RIGHT   SPC
-    Page up          : PGUP      LEFT
-    Next chapter     : n
-    Prev chapter     : p
-    Beginning of ch  : HOME      g
-    End of ch        : END       G
+    Beginning of ch  : g
+    End of ch        : G
     Open image       : o
-    Search           : /
-    Next Occurrence  : n
-    Prev Occurrence  : N
-    Toggle width     : =
-    ToC              : TAB       t
+    Increase width   : +
+    Decrease width   : -
     Metadata         : m
-    Mark pos to n    : b[n]
-    Jump to pos n    : ` + "`" + `[n]
-    Switch colorsch  : c`)
+    Switch colorsch  : c
+
+Press Esc or Enter to close
+`)
 }
 
 // printVersion prints the version information
 func printVersion() {
 	fmt.Printf("goread %s\n", version)
 	fmt.Printf("%s License\n", license)
-	fmt.Printf("Copyright (c) 2023 %s\n", author)
+	fmt.Printf("Copyright (c) 2025 %s\n", author)
 	fmt.Println(url)
 }
 
 // printHistory prints the reading history
 func printHistory(cfg *config.Config) {
 	fmt.Println("Reading history:")
-	var i int
-	for file, state := range cfg.States {
+
+	// Get files in consistent order
+	files := getOrderedHistoryFiles(cfg)
+
+	// Print each file with its index
+	for i, file := range files {
+		state := cfg.States[file]
 		marker := " "
 		if state.LastRead {
 			marker = "*"
 		}
-		fmt.Printf("%3d%s %s\n", i+1, marker, file)
-		i++
+		fmt.Printf("%3d %s %s\n", i+1, marker, file)
 	}
 }
 

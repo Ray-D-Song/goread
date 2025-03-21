@@ -94,6 +94,11 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
+				if r.UI.SearchPattern != "" {
+					r.UI.SearchPattern = ""
+					r.clearSearchHighlights()
+					return nil
+				}
 				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
 				r.UI.App.Stop()
 				return nil
@@ -103,6 +108,7 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 			case 'm':
 				r.showMetadata()
 				return nil
+			// NEED FIX: not work in some books
 			case 't', '\t':
 				r.showTOC(r.CurrentChapter)
 				return nil
@@ -124,9 +130,6 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				} else {
 					r.prevChapter(pos, pctg)
 				}
-				return nil
-			case 'p':
-				r.prevChapter(pos, pctg)
 				return nil
 			case 'j':
 				r.scrollDown()
@@ -158,12 +161,13 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 			case 'C':
 				r.UI.SetStatus("All caches cleared")
 				return nil
-			case 'b':
-				r.markPosition(r.CurrentChapter, pos, pctg)
-				return nil
-			case '`':
-				r.jumpToPosition(r.CurrentChapter, pos, pctg)
-				return nil
+				// currently not supported
+				// case 'b':
+				// 	r.markPosition(r.CurrentChapter, pos, pctg)
+				// 	return nil
+				// case '`':
+				// 	r.jumpToPosition(r.CurrentChapter, pos, pctg)
+				// 	return nil
 			}
 		case tcell.KeyDown:
 			r.scrollDown()
