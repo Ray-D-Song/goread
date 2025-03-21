@@ -199,6 +199,32 @@ func (e *Epub) parseContainer() error {
 		e.RootDir += "/"
 	}
 
+	// check if OEBPS directory exists
+	hasOEBPS := false
+	for _, file := range e.File.File {
+		if strings.HasPrefix(file.Name, "OEBPS/") {
+			hasOEBPS = true
+			break
+		}
+	}
+
+	// if OEBPS directory exists but current RootFile is not in OEBPS
+	if hasOEBPS && !strings.HasPrefix(e.RootFile, "OEBPS/") {
+		// try to find the same file in OEBPS
+		oebpsRootFile := "OEBPS/" + filepath.Base(e.RootFile)
+		for _, file := range e.File.File {
+			if file.Name == oebpsRootFile {
+				utils.DebugLog("[INFO:parseContainer] Found rootfile in OEBPS directory: %s", oebpsRootFile)
+				e.RootFile = oebpsRootFile
+				e.RootDir = filepath.Dir(e.RootFile)
+				if e.RootDir != "" {
+					e.RootDir += "/"
+				}
+				break
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -299,8 +325,25 @@ func (e *Epub) generateTOC() error {
 
 	tocFile, err := e.File.Open(tocPath)
 	if err != nil {
-		utils.DebugLog("[ERROR:GenerateTOC] Error opening TOC file: %v", err)
-		return err
+		// 尝试在 OEBPS 目录中查找 TOC 文件
+		if !strings.HasPrefix(tocPath, "OEBPS/") {
+			oebpsTocPath := "OEBPS/" + tocPath
+			utils.DebugLog("[INFO:GenerateTOC] Trying to find TOC file in OEBPS directory: %s", oebpsTocPath)
+
+			oebpsTocFile, oebpsErr := e.File.Open(oebpsTocPath)
+			if oebpsErr == nil {
+				utils.DebugLog("[INFO:GenerateTOC] Found TOC file in OEBPS directory")
+				tocFile = oebpsTocFile
+				tocPath = oebpsTocPath
+				err = nil
+			} else {
+				utils.DebugLog("[ERROR:GenerateTOC] Error opening TOC file: %v", err)
+				return err
+			}
+		} else {
+			utils.DebugLog("[ERROR:GenerateTOC] Error opening TOC file: %v", err)
+			return err
+		}
 	}
 	defer tocFile.Close()
 
@@ -416,9 +459,26 @@ func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
 		chapterPath = chapterPath[2:]
 	}
 
+	// 尝试打开章节文件
 	chapterFile, err := e.File.Open(chapterPath)
 	if err != nil {
-		return nil, err
+		// 如果打开失败，尝试在 OEBPS 目录下查找
+		if !strings.HasPrefix(chapterPath, "OEBPS/") {
+			oebpsPath := "OEBPS/" + chapterPath
+			utils.DebugLog("[INFO:GetChapterContents] Trying to find chapter in OEBPS directory: %s", oebpsPath)
+
+			// 检查 OEBPS 路径下的文件是否存在
+			oebpsFile, oebpsErr := e.File.Open(oebpsPath)
+			if oebpsErr == nil {
+				utils.DebugLog("[INFO:GetChapterContents] Found chapter in OEBPS directory")
+				chapterFile = oebpsFile
+				err = nil
+			} else {
+				return nil, err // 如果在 OEBPS 目录下也找不到，返回原始错误
+			}
+		} else {
+			return nil, err
+		}
 	}
 	defer chapterFile.Close()
 

@@ -413,7 +413,22 @@ func extractImage(book *epub.Epub, imagePath string, tempDir string) (string, er
 	// Open the image file
 	imageFile, err := book.File.Open(imagePath)
 	if err != nil {
-		return "", fmt.Errorf("image file not found in EPUB: %v", err)
+		// try to find the image in OEBPS directory
+		if !strings.HasPrefix(imagePath, "OEBPS/") {
+			oebpsImagePath := "OEBPS/" + imagePath
+			utils.DebugLog("[INFO:extractImage] Trying to find image in OEBPS directory: %s", oebpsImagePath)
+
+			oebpsImageFile, oebpsErr := book.File.Open(oebpsImagePath)
+			if oebpsErr == nil {
+				utils.DebugLog("[INFO:extractImage] Found image in OEBPS directory")
+				imageFile = oebpsImageFile
+				err = nil
+			} else {
+				return "", fmt.Errorf("image file not found in EPUB: %v", err)
+			}
+		} else {
+			return "", fmt.Errorf("image file not found in EPUB: %v", err)
+		}
 	}
 	defer imageFile.Close()
 
