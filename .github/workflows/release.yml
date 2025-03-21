@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+
+      - name: Build all platforms
+        run: make all
+
+      - name: Get the version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            release/goread-windows-amd64.exe
+            release/goread-windows-386.exe
+            release/goread-linux-amd64
+            release/goread-linux-386
+            release/goread-linux-arm64
+            release/goread-linux-arm
+            release/goread-darwin-amd64
+            release/goread-darwin-arm64 
