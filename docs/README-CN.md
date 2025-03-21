@@ -2,7 +2,7 @@
 
 GoRead 是一个用 Golang 编写的终端/CLI EPUB 阅读器，受 [epr](https://github.com/wustho/epr) 启发。
 
-![GoRead](./docs/showcase.png)
+![GoRead](./showcase.png)
 
 ## 特性
 
