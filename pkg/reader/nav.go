@@ -25,14 +25,14 @@ func (r *Reader) scrollUp() {
 
 // pageDown goes to the next page
 func (r *Reader) pageDown(pos int) {
-	_, _, height, _ := r.UI.TextArea.GetInnerRect()
+	_, _, _, height := r.UI.TextArea.GetInnerRect()
 	row, col := r.UI.TextArea.GetScrollOffset()
 	r.UI.TextArea.ScrollTo(row+height, col)
 }
 
 // pageUp goes to the previous page
 func (r *Reader) pageUp(pos int) {
-	_, _, height, _ := r.UI.TextArea.GetInnerRect()
+	_, _, _, height := r.UI.TextArea.GetInnerRect()
 	row, col := r.UI.TextArea.GetScrollOffset()
 	if row-height > 0 {
 		r.UI.TextArea.ScrollTo(row-height, col)
@@ -43,7 +43,7 @@ func (r *Reader) pageUp(pos int) {
 
 // halfPageUp goes up half a page
 func (r *Reader) halfPageUp(pos int) {
-	_, _, height, _ := r.UI.TextArea.GetInnerRect()
+	_, _, _, height := r.UI.TextArea.GetInnerRect()
 	row, col := r.UI.TextArea.GetScrollOffset()
 	if row-height/2 > 0 {
 		r.UI.TextArea.ScrollTo(row-height/2, col)
@@ -54,7 +54,7 @@ func (r *Reader) halfPageUp(pos int) {
 
 // halfPageDown goes down half a page
 func (r *Reader) halfPageDown(pos int) {
-	_, _, height, _ := r.UI.TextArea.GetInnerRect()
+	_, _, _, height := r.UI.TextArea.GetInnerRect()
 	row, col := r.UI.TextArea.GetScrollOffset()
 	r.UI.TextArea.ScrollTo(row+height/2, col)
 }
