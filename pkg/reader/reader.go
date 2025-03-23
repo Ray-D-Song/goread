@@ -417,7 +417,7 @@ func extractImage(book *epub.Epub, imagePath string, tempDir string) (string, er
 	// Open the image file
 	imageFile, err := book.File.Open(imagePath)
 	if err != nil {
-		// try to find the image in OEBPS directory
+		// Try to find the image in OEBPS directory
 		if !strings.HasPrefix(imagePath, "OEBPS/") {
 			oebpsImagePath := "OEBPS/" + imagePath
 			utils.DebugLog("[INFO:extractImage] Trying to find image in OEBPS directory: %s", oebpsImagePath)
@@ -428,10 +428,40 @@ func extractImage(book *epub.Epub, imagePath string, tempDir string) (string, er
 				imageFile = oebpsImageFile
 				err = nil
 			} else {
-				return "", fmt.Errorf("image file not found in EPUB: %v", err)
+				// Try to find the image relative to the RootDir (OPF file's directory)
+				if book.RootDir != "" {
+					rootDirImagePath := book.RootDir + imagePath
+					utils.DebugLog("[INFO:extractImage] Trying to find image relative to OPF directory: %s", rootDirImagePath)
+
+					rootDirImageFile, rootDirErr := book.File.Open(rootDirImagePath)
+					if rootDirErr == nil {
+						utils.DebugLog("[INFO:extractImage] Found image relative to OPF directory")
+						imageFile = rootDirImageFile
+						err = nil
+					} else {
+						return "", fmt.Errorf("image file not found in EPUB: %v", err)
+					}
+				} else {
+					return "", fmt.Errorf("image file not found in EPUB: %v", err)
+				}
 			}
 		} else {
-			return "", fmt.Errorf("image file not found in EPUB: %v", err)
+			// Try to find the image relative to the RootDir (OPF file's directory)
+			if book.RootDir != "" && !strings.HasPrefix(imagePath, book.RootDir) {
+				rootDirImagePath := book.RootDir + strings.TrimPrefix(imagePath, "OEBPS/")
+				utils.DebugLog("[INFO:extractImage] Trying to find image relative to OPF directory: %s", rootDirImagePath)
+
+				rootDirImageFile, rootDirErr := book.File.Open(rootDirImagePath)
+				if rootDirErr == nil {
+					utils.DebugLog("[INFO:extractImage] Found image relative to OPF directory")
+					imageFile = rootDirImageFile
+					err = nil
+				} else {
+					return "", fmt.Errorf("image file not found in EPUB: %v", err)
+				}
+			} else {
+				return "", fmt.Errorf("image file not found in EPUB: %v", err)
+			}
 		}
 	}
 	defer imageFile.Close()
