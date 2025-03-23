@@ -474,10 +474,40 @@ func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
 				chapterFile = oebpsFile
 				err = nil
 			} else {
-				return nil, err // if not found in OEBPS directory, return the original error
+				// Try to find the file relative to the RootDir (OPF file's directory)
+				if e.RootDir != "" {
+					rootDirPath := e.RootDir + chapterPath
+					utils.DebugLog("[INFO:GetChapterContents] Trying to find chapter relative to OPF directory: %s", rootDirPath)
+
+					rootDirFile, rootDirErr := e.File.Open(rootDirPath)
+					if rootDirErr == nil {
+						utils.DebugLog("[INFO:GetChapterContents] Found chapter relative to OPF directory")
+						chapterFile = rootDirFile
+						err = nil
+					} else {
+						return nil, err // if not found in RootDir, return the original error
+					}
+				} else {
+					return nil, err // if not found in OEBPS directory, return the original error
+				}
 			}
 		} else {
-			return nil, err
+			// Try to find the file relative to the RootDir (OPF file's directory)
+			if e.RootDir != "" && !strings.HasPrefix(chapterPath, e.RootDir) {
+				rootDirPath := e.RootDir + strings.TrimPrefix(chapterPath, "OEBPS/")
+				utils.DebugLog("[INFO:GetChapterContents] Trying to find chapter relative to OPF directory: %s", rootDirPath)
+
+				rootDirFile, rootDirErr := e.File.Open(rootDirPath)
+				if rootDirErr == nil {
+					utils.DebugLog("[INFO:GetChapterContents] Found chapter relative to OPF directory")
+					chapterFile = rootDirFile
+					err = nil
+				} else {
+					return nil, err // if not found in RootDir, return the original error
+				}
+			} else {
+				return nil, err
+			}
 		}
 	}
 	defer chapterFile.Close()
