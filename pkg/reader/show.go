@@ -184,110 +184,119 @@ func (r *Reader) showTOC(index int) {
 	utils.DebugLog("[INFO:showTOC] Complete path length: %d", len(path))
 
 	if len(path) > 0 {
-		// Find the root level node of the path
-		rootId := path[0]
-		rootNode, exists := nodeMap[rootId]
+		// If the current TOC is a level 0 node
+		if currentToc.Level == 0 {
+			// Try to find the node directly and set focus to it
+			if currentNode, exists := nodeMap[currentToc.ID]; exists {
+				utils.DebugLog("[INFO:showTOC] Current TOC is level 0, setting focus directly: %s", currentNode.GetText())
+				tree.SetCurrentNode(currentNode)
+			}
+		} else {
+			// Find the root level node of the path
+			rootId := path[0]
+			rootNode, exists := nodeMap[rootId]
 
-		if exists {
-			utils.DebugLog("[INFO:showTOC] Found root of path: %s", rootNode.GetText())
+			if exists {
+				utils.DebugLog("[INFO:showTOC] Found root of path: %s", rootNode.GetText())
 
-			// Expand the root node
-			rootNode.SetExpanded(true)
+				// Expand the root node
+				rootNode.SetExpanded(true)
 
-			// Add first level children if not already added
-			var rootRef epub.TOCValue
-			if ref, ok := rootNode.GetReference().(epub.TOCValue); ok {
-				rootRef = ref
+				// Add first level children if not already added
+				var rootRef epub.TOCValue
+				if ref, ok := rootNode.GetReference().(epub.TOCValue); ok {
+					rootRef = ref
 
-				// Find children for this node
-				var children []epub.TOCValue
-				for _, child := range r.Book.TOC.Slice {
-					if child.ParentID == rootRef.ID {
-						children = append(children, child)
+					// Find children for this node
+					var children []epub.TOCValue
+					for _, child := range r.Book.TOC.Slice {
+						if child.ParentID == rootRef.ID {
+							children = append(children, child)
+						}
+					}
+
+					if len(rootNode.GetChildren()) == 0 && len(children) > 0 {
+						utils.DebugLog("[INFO:showTOC] Adding %d children to root node", len(children))
+						add(rootNode, children)
 					}
 				}
 
-				if len(rootNode.GetChildren()) == 0 && len(children) > 0 {
-					utils.DebugLog("[INFO:showTOC] Adding %d children to root node", len(children))
-					add(rootNode, children)
-				}
-			}
+				// Navigate the path, expanding nodes as we go
+				currentNode := rootNode
+				for i := 1; i < len(path); i++ {
+					childId := path[i]
 
-			// Navigate the path, expanding nodes as we go
-			currentNode := rootNode
-			for i := 1; i < len(path); i++ {
-				childId := path[i]
+					// If the node isn't in our map yet, we need to add and expand its parent
+					childNode, exists := nodeMap[childId]
+					if !exists {
+						utils.DebugLog("[INFO:showTOC] Node not found in map yet, expanding parent: %s", currentNode.GetText())
 
-				// If the node isn't in our map yet, we need to add and expand its parent
-				childNode, exists := nodeMap[childId]
-				if !exists {
-					utils.DebugLog("[INFO:showTOC] Node not found in map yet, expanding parent: %s", currentNode.GetText())
+						// Get the parent's reference
+						parentRef, ok := currentNode.GetReference().(epub.TOCValue)
+						if !ok {
+							utils.DebugLog("[INFO:showTOC] Failed to get reference for parent node")
+							break
+						}
 
-					// Get the parent's reference
-					parentRef, ok := currentNode.GetReference().(epub.TOCValue)
-					if !ok {
-						utils.DebugLog("[INFO:showTOC] Failed to get reference for parent node")
+						// Find all children for the parent
+						var children []epub.TOCValue
+						for _, child := range r.Book.TOC.Slice {
+							if child.ParentID == parentRef.ID {
+								children = append(children, child)
+								utils.DebugLog("[INFO:showTOC] Found child for %s: %s (ID: %s)",
+									parentRef.Title, child.Title, child.ID)
+							}
+						}
+
+						// Add the children to the parent node and expand it
+						if len(children) > 0 {
+							add(currentNode, children)
+							currentNode.SetExpanded(true)
+						}
+
+						// Now try to find our target child again
+						childNode, exists = nodeMap[childId]
+					}
+
+					if !exists {
+						utils.DebugLog("[INFO:showTOC] Failed to find child node with ID: %s", childId)
 						break
 					}
 
-					// Find all children for the parent
-					var children []epub.TOCValue
-					for _, child := range r.Book.TOC.Slice {
-						if child.ParentID == parentRef.ID {
-							children = append(children, child)
-							utils.DebugLog("[INFO:showTOC] Found child for %s: %s (ID: %s)",
-								parentRef.Title, child.Title, child.ID)
-						}
-					}
+					// Move to the next node in the path
+					currentNode = childNode
 
-					// Add the children to the parent node and expand it
-					if len(children) > 0 {
-						add(currentNode, children)
-						currentNode.SetExpanded(true)
-					}
+					// If this is the last node in the path (our target), select it
+					if i == len(path)-1 {
+						tree.SetCurrentNode(childNode)
+						utils.DebugLog("[INFO:showTOC] Set current node to: %s", childNode.GetText())
+					} else {
+						// Otherwise expand it to continue down the path
+						if !childNode.IsExpanded() {
+							childNode.SetExpanded(true)
 
-					// Now try to find our target child again
-					childNode, exists = nodeMap[childId]
-				}
+							// Add children to this node
+							childRef, ok := childNode.GetReference().(epub.TOCValue)
+							if ok {
+								var grandchildren []epub.TOCValue
+								for _, child := range r.Book.TOC.Slice {
+									if child.ParentID == childRef.ID {
+										grandchildren = append(grandchildren, child)
+									}
+								}
 
-				if !exists {
-					utils.DebugLog("[INFO:showTOC] Failed to find child node with ID: %s", childId)
-					break
-				}
-
-				// Move to the next node in the path
-				currentNode = childNode
-
-				// If this is the last node in the path (our target), select it
-				if i == len(path)-1 {
-					tree.SetCurrentNode(childNode)
-					utils.DebugLog("[INFO:showTOC] Set current node to: %s", childNode.GetText())
-				} else {
-					// Otherwise expand it to continue down the path
-					if !childNode.IsExpanded() {
-						childNode.SetExpanded(true)
-
-						// Add children to this node
-						childRef, ok := childNode.GetReference().(epub.TOCValue)
-						if ok {
-							var grandchildren []epub.TOCValue
-							for _, child := range r.Book.TOC.Slice {
-								if child.ParentID == childRef.ID {
-									grandchildren = append(grandchildren, child)
+								if len(grandchildren) > 0 {
+									utils.DebugLog("[INFO:showTOC] Adding %d children to node: %s",
+										len(grandchildren), childNode.GetText())
+									add(childNode, grandchildren)
 								}
 							}
-
-							if len(grandchildren) > 0 {
-								utils.DebugLog("[INFO:showTOC] Adding %d children to node: %s",
-									len(grandchildren), childNode.GetText())
-								add(childNode, grandchildren)
-							}
 						}
 					}
 				}
+			} else {
+				utils.DebugLog("[INFO:showTOC] Could not find root node for path with ID: %s", rootId)
 			}
-		} else {
-			utils.DebugLog("[INFO:showTOC] Could not find root node for path with ID: %s", rootId)
 		}
 	}
 

@@ -453,7 +453,10 @@ func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
 	}
 
 	tocValue := e.TOC.Slice[index]
-	nextTocValue := e.TOC.Slice[index+1]
+	var nextTocValue = TOCValue{}
+	if index < e.TOC.Len()-1 {
+		nextTocValue = e.TOC.Slice[index+1]
+	}
 	// Remove "./" prefix if present
 	chapterPath := tocValue.Path
 	if strings.HasPrefix(chapterPath, "./") {
