@@ -115,11 +115,13 @@ func main() {
 			Pos:   0,
 			Pctg:  0,
 		}
+
+		// Only set and save state if it's a new file
+		cfg.SetState(filePath, state)
 	}
 
 	// Set the last read file
 	cfg.SetLastRead(filePath)
-	cfg.SetState(filePath, state)
 	cfg.Save()
 
 	// Start the reader

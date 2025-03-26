@@ -96,8 +96,19 @@ func (r *Reader) jumpToPosition(index int, pos int, pctg float64) {
 // nextChapter moves to the next chapter
 func (r *Reader) nextChapter(pos int, pctg float64) {
 	utils.DebugLog("[INFO:nextChapter] Moving to next chapter from index: %d", r.CurrentChapter)
+
+	// Save current chapter state before moving to next chapter
+	row, _ := r.UI.TextArea.GetScrollOffset()
+	text := r.UI.TextArea.GetText(false)
+	lines := strings.Split(text, "\n")
+	currentPctg := float64(0)
+	if len(lines) > 0 {
+		currentPctg = float64(row) / float64(len(lines))
+	}
+	r.saveState(r.CurrentChapter, r.UI.Width, row, currentPctg)
+
 	r.CurrentChapter++
-	err := r.readChapter(r.CurrentChapter, pctg)
+	err := r.readChapter(r.CurrentChapter, 0) // Start at the beginning of the new chapter
 	if err != nil {
 		r.UI.StatusBar.SetText(fmt.Sprintf("Error reading chapter: %v", err))
 	}
@@ -132,8 +143,19 @@ func (r *Reader) nextChapter(pos int, pctg float64) {
 // prevChapter moves to the previous chapter
 func (r *Reader) prevChapter(pos int, pctg float64) {
 	utils.DebugLog("[INFO:prevChapter] Moving to previous chapter from index: %d", r.CurrentChapter)
+
+	// Save current chapter state before moving to previous chapter
+	row, _ := r.UI.TextArea.GetScrollOffset()
+	text := r.UI.TextArea.GetText(false)
+	lines := strings.Split(text, "\n")
+	currentPctg := float64(0)
+	if len(lines) > 0 {
+		currentPctg = float64(row) / float64(len(lines))
+	}
+	r.saveState(r.CurrentChapter, r.UI.Width, row, currentPctg)
+
 	r.CurrentChapter--
-	err := r.readChapter(r.CurrentChapter, pctg)
+	err := r.readChapter(r.CurrentChapter, 0) // Start at the beginning of the new chapter
 	if err != nil {
 		r.UI.StatusBar.SetText(fmt.Sprintf("Error reading chapter: %v", err))
 	}

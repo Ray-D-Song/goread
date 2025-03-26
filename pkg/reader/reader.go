@@ -87,7 +87,15 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				return nil
 			} else {
 				// Only exit if not in search mode
-				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
+				// Get current position
+				row, _ := r.UI.TextArea.GetScrollOffset()
+				text := r.UI.TextArea.GetText(false)
+				lines := strings.Split(text, "\n")
+				currentPctg := float64(0)
+				if len(lines) > 0 {
+					currentPctg = float64(row) / float64(len(lines))
+				}
+				r.saveState(r.CurrentChapter, r.UI.Width, row, currentPctg)
 				r.UI.App.Stop()
 				return nil
 			}
@@ -99,7 +107,15 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 					r.clearSearchHighlights()
 					return nil
 				}
-				r.saveState(r.CurrentChapter, r.UI.Width, pos, pctg)
+				// Get current position
+				row, _ := r.UI.TextArea.GetScrollOffset()
+				text := r.UI.TextArea.GetText(false)
+				lines := strings.Split(text, "\n")
+				currentPctg := float64(0)
+				if len(lines) > 0 {
+					currentPctg = float64(row) / float64(len(lines))
+				}
+				r.saveState(r.CurrentChapter, r.UI.Width, row, currentPctg)
 				r.UI.App.Stop()
 				return nil
 			case '?':
