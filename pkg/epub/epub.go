@@ -30,6 +30,7 @@ type TOCValue struct {
 	Fragment string
 	Level    int
 	IsDir    bool
+	IsShadow bool
 }
 
 // Epub represents an EPUB book
@@ -307,25 +308,33 @@ func (e *Epub) initialize() error {
 	}
 
 	// Try to get chapter information from TOC
-	if err := e.generateTOC(); err != nil {
+	if err := e.generateTOC(pkg.Spine, manifestItems); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (e *Epub) generateTOC() error {
+func (e *Epub) generateTOC(spine []SpineItem, manifestItems map[string]ManifestItem) error {
 	utils.DebugLog("[INFO:GenerateTOC] Trying to get contents from TOC file: %s", e.TOCPath)
 
+	// Initialize TOC from spine first (complete list)
+	e.TOC = utils.NewDList[TOCValue]()
+
+	// Generate a map to track paths that are in the TOC file
+	tocPaths := make(map[string]bool)
+
+	// First, parse the TOC file to know which paths are in the official TOC
 	// Remove "./" prefix if present
 	tocPath := e.TOCPath
 	if strings.HasPrefix(tocPath, "./") {
 		tocPath = tocPath[2:]
 	}
 
+	// Try to open TOC file
 	tocFile, err := e.File.Open(tocPath)
 	if err != nil {
-		// 尝试在 OEBPS 目录中查找 TOC 文件
+		// Try to find the TOC file in OEBPS directory
 		if !strings.HasPrefix(tocPath, "OEBPS/") {
 			oebpsTocPath := "OEBPS/" + tocPath
 			utils.DebugLog("[INFO:GenerateTOC] Trying to find TOC file in OEBPS directory: %s", oebpsTocPath)
@@ -338,65 +347,164 @@ func (e *Epub) generateTOC() error {
 				err = nil
 			} else {
 				utils.DebugLog("[ERROR:GenerateTOC] Error opening TOC file: %v", err)
-				return err
+				// Continue with empty tocPaths map - all items will be marked as shadow
 			}
 		} else {
 			utils.DebugLog("[ERROR:GenerateTOC] Error opening TOC file: %v", err)
-			return err
+			// Continue with empty tocPaths map - all items will be marked as shadow
 		}
 	}
-	defer tocFile.Close()
 
-	// Determine the TOC file type based on extension or content
-	isNCX := strings.HasSuffix(strings.ToLower(tocPath), ".ncx")
-	utils.DebugLog("[INFO:GenerateTOC] TOC file is NCX: %v", isNCX)
+	// If we successfully opened the TOC file, parse it to collect paths
+	if err == nil {
+		defer tocFile.Close()
 
-	e.TOC = utils.NewDList[TOCValue]()
+		// Determine the TOC file type based on extension or content
+		isNCX := strings.HasSuffix(strings.ToLower(tocPath), ".ncx")
+		utils.DebugLog("[INFO:GenerateTOC] TOC file is NCX: %v", isNCX)
 
-	if isNCX {
-		// Parse as NCX file (EPUB 2.0 style)
-		var ncx NCX
-		decoder := xml.NewDecoder(tocFile)
-		err = decoder.Decode(&ncx)
-		if err != nil {
-			utils.DebugLog("[ERROR:GenerateTOC] Error decoding NCX: %v", err)
-			return err
+		if isNCX {
+			// Parse as NCX file (EPUB 2.0 style)
+			var ncx NCX
+			decoder := xml.NewDecoder(tocFile)
+			err = decoder.Decode(&ncx)
+			if err != nil {
+				utils.DebugLog("[ERROR:GenerateTOC] Error decoding NCX: %v", err)
+				// Continue with empty tocPaths map - all items will be marked as shadow
+			} else {
+				// Extract all navPoint paths recursively
+				collectNavPointPaths(&ncx.NavPoints, tocPaths)
+			}
+		} else {
+			// Parse as navigation document (EPUB 3.0 style)
+			var nav Nav
+			decoder := xml.NewDecoder(tocFile)
+			err = decoder.Decode(&nav)
+			if err != nil {
+				utils.DebugLog("[ERROR:GenerateTOC] Error decoding Nav: %v", err)
+				// Continue with empty tocPaths map - all items will be marked as shadow
+			} else {
+				// Extract all nav link paths
+				for _, link := range nav.NavLinks {
+					path, _ := splitPathAndFragment(link.Href)
+					tocPaths[path] = true
+				}
+			}
 		}
-		// Process all nav points recursively
-		var prev *utils.DItem[TOCValue]
-		for i := range ncx.NavPoints {
-			prev = processNestedNavPoints(ncx.NavPoints[i], e.TOC, prev, 0, uuid.New().String())
-		}
-	} else {
-		// Parse as navigation document (EPUB 3.0 style)
-		var nav Nav
-		decoder := xml.NewDecoder(tocFile)
-		err = decoder.Decode(&nav)
-		if err != nil {
-			utils.DebugLog("[ERROR:GenerateTOC] Error decoding Nav: %v", err)
-			return err
-		}
+	}
 
-		utils.DebugLog("[INFO:GenerateTOC] Number of navLinks: %d", len(nav.NavLinks))
+	// Now generate the full TOC from spine
+	var prev *utils.DItem[TOCValue]
 
-		// Process nav links
-		var prev *utils.DItem[TOCValue]
-		for _, link := range nav.NavLinks {
-			path, fragment := splitPathAndFragment(link.Href)
+	// Create temporary TOC from the official TOC file (if available)
+	var tempTOC *utils.DList[TOCValue]
+	if err == nil {
+		tempTOC = utils.NewDList[TOCValue]()
+		tocFile, _ := e.File.Open(tocPath) // Reopen the file
+		defer tocFile.Close()
+
+		isNCX := strings.HasSuffix(strings.ToLower(tocPath), ".ncx")
+
+		if isNCX {
+			var ncx NCX
+			decoder := xml.NewDecoder(tocFile)
+			_ = decoder.Decode(&ncx)
+
+			// Process all nav points recursively into tempTOC
+			var tempPrev *utils.DItem[TOCValue]
+			for i := range ncx.NavPoints {
+				tempPrev = processNestedNavPoints(ncx.NavPoints[i], tempTOC, tempPrev, 0, uuid.New().String())
+			}
+		} else {
+			var nav Nav
+			decoder := xml.NewDecoder(tocFile)
+			_ = decoder.Decode(&nav)
+
+			// Process nav links into tempTOC
+			var tempPrev *utils.DItem[TOCValue]
+			for _, link := range nav.NavLinks {
+				path, fragment := splitPathAndFragment(link.Href)
+				newItem := TOCValue{
+					ID:       uuid.New().String(),
+					Title:    link.Text,
+					Path:     path,
+					Fragment: fragment,
+					Level:    0,
+					IsDir:    false,
+					ParentID: "",
+					IsShadow: false,
+				}
+				newNode := tempTOC.Add(newItem, tempPrev)
+				tempPrev = newNode
+			}
+		}
+	}
+
+	// Create a map of path -> TOCValue from tempTOC for easy lookup
+	pathToTOC := make(map[string]TOCValue)
+	if tempTOC != nil {
+		for _, item := range tempTOC.Slice {
+			pathToTOC[item.Path] = item
+		}
+	}
+
+	// Now process all spine items
+	for _, spineItem := range spine {
+		if item, ok := manifestItems[spineItem.IDRef]; ok {
+			// Get the href from the manifest item
+			href := item.Href
+
+			// See if this path is in the official TOC
+			path, fragment := splitPathAndFragment(href)
+			_, inTOC := tocPaths[path]
+
+			// Get TOC value from the tempTOC if available
+			var title string
+			var level int
+			var isDir bool
+
+			if tocValue, exists := pathToTOC[path]; exists {
+				title = tocValue.Title
+				level = tocValue.Level
+				isDir = tocValue.IsDir
+			} else {
+				// Use ID as title if not in TOC
+				title = spineItem.IDRef
+				level = 0
+				isDir = false
+			}
+
+			// Create TOC entry
 			newItem := TOCValue{
-				Title:    link.Text,
+				ID:       uuid.New().String(),
+				Title:    title,
 				Path:     path,
 				Fragment: fragment,
-				Level:    0, // For now we don't handle nested nav links in EPUB 3.0
-				IsDir:    false,
+				Level:    level,
+				IsDir:    isDir,
 				ParentID: "",
+				IsShadow: !inTOC, // Mark as shadow if not in the official TOC
 			}
+
 			newNode := e.TOC.Add(newItem, prev)
 			prev = newNode
 		}
 	}
 
 	return nil
+}
+
+// collectNavPointPaths recursively collects paths from NavPoints
+func collectNavPointPaths(navPoints *[]NavPoint, paths map[string]bool) {
+	for _, navPoint := range *navPoints {
+		path, _ := splitPathAndFragment(navPoint.Content.Src)
+		paths[path] = true
+
+		// Process children recursively
+		if len(navPoint.NavPoints) > 0 {
+			collectNavPointPaths(&navPoint.NavPoints, paths)
+		}
+	}
 }
 
 func processNestedNavPoints(navPoint NavPoint, list *utils.DList[TOCValue], prev *utils.DItem[TOCValue], level int, parentID string) *utils.DItem[TOCValue] {
@@ -409,6 +517,7 @@ func processNestedNavPoints(navPoint NavPoint, list *utils.DList[TOCValue], prev
 		Level:    level,
 		IsDir:    len(navPoint.NavPoints) > 0,
 		ParentID: parentID,
+		IsShadow: false,
 	}
 
 	newNode := list.Add(newItem, prev)
