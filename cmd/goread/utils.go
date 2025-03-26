@@ -31,6 +31,7 @@ func findFileInHistory(cfg *config.Config, args []string) string {
 
 			// The number is 1-indexed (as shown in the history output)
 			if num > 0 && num <= len(files) {
+				// The path is already absolute, as it's stored in the config
 				return files[num-1]
 			}
 		}
@@ -57,6 +58,7 @@ func findFileInHistory(cfg *config.Config, args []string) string {
 		}
 	}
 
+	// The path is already absolute, as it's stored in the config
 	return bestMatch
 }
 
@@ -135,6 +137,7 @@ func printHistory(cfg *config.Config) {
 		if state.LastRead {
 			marker = "*"
 		}
+		// Show absolute path
 		fmt.Printf("%3d %s %s\n", i+1, marker, file)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/ray-d-song/goread/pkg/config"
 	"github.com/ray-d-song/goread/pkg/epub"
@@ -73,6 +74,13 @@ func main() {
 	} else if len(args) == 1 && isFile(args[0]) {
 		// Single argument is a file
 		filePath = args[0]
+		// Convert to absolute path
+		absPath, err := filepath.Abs(filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error converting to absolute path: %v\n", err)
+			os.Exit(1)
+		}
+		filePath = absPath
 	} else {
 		// Try to match the arguments against the history
 		filePath = findFileInHistory(cfg, args)
