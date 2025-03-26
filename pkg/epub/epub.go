@@ -318,13 +318,6 @@ func (e *Epub) initialize() error {
 func (e *Epub) generateTOC(spine []SpineItem, manifestItems map[string]ManifestItem) error {
 	utils.DebugLog("[INFO:GenerateTOC] Trying to get contents from TOC file: %s", e.TOCPath)
 
-	// Initialize TOC from spine first (complete list)
-	e.TOC = utils.NewDList[TOCValue]()
-
-	// Generate a map to track paths that are in the TOC file
-	tocPaths := make(map[string]bool)
-
-	// First, parse the TOC file to know which paths are in the official TOC
 	// Remove "./" prefix if present
 	tocPath := e.TOCPath
 	if strings.HasPrefix(tocPath, "./") {
@@ -355,7 +348,11 @@ func (e *Epub) generateTOC(spine []SpineItem, manifestItems map[string]ManifestI
 		}
 	}
 
-	// If we successfully opened the TOC file, parse it to collect paths
+	// Initialize TOC
+	e.TOC = utils.NewDList[TOCValue]()
+
+	// First, try to build TOC from the official TOC file
+	var tocNodeCount int
 	if err == nil {
 		defer tocFile.Close()
 
@@ -370,10 +367,15 @@ func (e *Epub) generateTOC(spine []SpineItem, manifestItems map[string]ManifestI
 			err = decoder.Decode(&ncx)
 			if err != nil {
 				utils.DebugLog("[ERROR:GenerateTOC] Error decoding NCX: %v", err)
-				// Continue with empty tocPaths map - all items will be marked as shadow
 			} else {
-				// Extract all navPoint paths recursively
-				collectNavPointPaths(&ncx.NavPoints, tocPaths)
+				// Process all nav points recursively to build TOC
+				var prev *utils.DItem[TOCValue]
+				for i := range ncx.NavPoints {
+					prev = processNestedNavPoints(ncx.NavPoints[i], e.TOC, prev, 0, uuid.New().String())
+				}
+
+				// Count NCX nodes including nested ones
+				tocNodeCount = countNCXNodes(&ncx.NavPoints)
 			}
 		} else {
 			// Parse as navigation document (EPUB 3.0 style)
@@ -382,116 +384,163 @@ func (e *Epub) generateTOC(spine []SpineItem, manifestItems map[string]ManifestI
 			err = decoder.Decode(&nav)
 			if err != nil {
 				utils.DebugLog("[ERROR:GenerateTOC] Error decoding Nav: %v", err)
-				// Continue with empty tocPaths map - all items will be marked as shadow
 			} else {
-				// Extract all nav link paths
+				utils.DebugLog("[INFO:GenerateTOC] Number of navLinks: %d", len(nav.NavLinks))
+
+				// Process nav links
+				var prev *utils.DItem[TOCValue]
+				for _, link := range nav.NavLinks {
+					path, fragment := splitPathAndFragment(link.Href)
+					newItem := TOCValue{
+						ID:       uuid.New().String(),
+						Title:    link.Text,
+						Path:     path,
+						Fragment: fragment,
+						Level:    0, // For now we don't handle nested nav links in EPUB 3.0
+						IsDir:    false,
+						ParentID: "",
+						IsShadow: false,
+					}
+					newNode := e.TOC.Add(newItem, prev)
+					prev = newNode
+				}
+
+				// Count nav nodes
+				tocNodeCount = len(nav.NavLinks)
+			}
+		}
+	}
+
+	// Only use spine to supplement TOC if we have a valid TOC file but fewer TOC nodes than spine items
+	// Or if we couldn't load a TOC file at all
+	if (err == nil && tocNodeCount < len(spine)) || err != nil {
+		utils.DebugLog("[INFO:GenerateTOC] TOC nodes (%d) < Spine nodes (%d), supplementing from spine",
+			tocNodeCount, len(spine))
+
+		// Generate a map to track paths that are in the TOC file
+		tocPaths := make(map[string]bool)
+
+		// If we have a TOC, collect paths from it
+		if err == nil {
+			// Reopen the TOC file to collect paths
+			tocFile, _ := e.File.Open(tocPath)
+			defer tocFile.Close()
+
+			isNCX := strings.HasSuffix(strings.ToLower(tocPath), ".ncx")
+
+			if isNCX {
+				var ncx NCX
+				decoder := xml.NewDecoder(tocFile)
+				_ = decoder.Decode(&ncx)
+				collectNavPointPaths(&ncx.NavPoints, tocPaths)
+			} else {
+				var nav Nav
+				decoder := xml.NewDecoder(tocFile)
+				_ = decoder.Decode(&nav)
 				for _, link := range nav.NavLinks {
 					path, _ := splitPathAndFragment(link.Href)
 					tocPaths[path] = true
 				}
 			}
 		}
-	}
 
-	// Now generate the full TOC from spine
-	var prev *utils.DItem[TOCValue]
-
-	// Create temporary TOC from the official TOC file (if available)
-	var tempTOC *utils.DList[TOCValue]
-	if err == nil {
-		tempTOC = utils.NewDList[TOCValue]()
-		tocFile, _ := e.File.Open(tocPath) // Reopen the file
-		defer tocFile.Close()
-
-		isNCX := strings.HasSuffix(strings.ToLower(tocPath), ".ncx")
-
-		if isNCX {
-			var ncx NCX
-			decoder := xml.NewDecoder(tocFile)
-			_ = decoder.Decode(&ncx)
-
-			// Process all nav points recursively into tempTOC
-			var tempPrev *utils.DItem[TOCValue]
-			for i := range ncx.NavPoints {
-				tempPrev = processNestedNavPoints(ncx.NavPoints[i], tempTOC, tempPrev, 0, uuid.New().String())
-			}
+		// Create temporary TOC for lookup (or use existing TOC if we have one)
+		var tempTOC *utils.DList[TOCValue]
+		if e.TOC.Len() > 0 {
+			// We already have TOC entries from the TOC file, use them
+			tempTOC = e.TOC
 		} else {
-			var nav Nav
-			decoder := xml.NewDecoder(tocFile)
-			_ = decoder.Decode(&nav)
-
-			// Process nav links into tempTOC
-			var tempPrev *utils.DItem[TOCValue]
-			for _, link := range nav.NavLinks {
-				path, fragment := splitPathAndFragment(link.Href)
-				newItem := TOCValue{
-					ID:       uuid.New().String(),
-					Title:    link.Text,
-					Path:     path,
-					Fragment: fragment,
-					Level:    0,
-					IsDir:    false,
-					ParentID: "",
-					IsShadow: false,
-				}
-				newNode := tempTOC.Add(newItem, tempPrev)
-				tempPrev = newNode
-			}
+			// We don't have a TOC yet, create an empty one
+			tempTOC = utils.NewDList[TOCValue]()
 		}
-	}
 
-	// Create a map of path -> TOCValue from tempTOC for easy lookup
-	pathToTOC := make(map[string]TOCValue)
-	if tempTOC != nil {
+		// Create a map of path -> TOCValue from tempTOC for easy lookup
+		pathToTOC := make(map[string]TOCValue)
 		for _, item := range tempTOC.Slice {
 			pathToTOC[item.Path] = item
 		}
-	}
 
-	// Now process all spine items
-	for _, spineItem := range spine {
-		if item, ok := manifestItems[spineItem.IDRef]; ok {
-			// Get the href from the manifest item
-			href := item.Href
+		// If we're supplementing, save the existing TOC
+		var existingTOC *utils.DList[TOCValue]
+		if e.TOC.Len() > 0 {
+			existingTOC = e.TOC
+			e.TOC = utils.NewDList[TOCValue]()
+		}
 
-			// See if this path is in the official TOC
-			path, fragment := splitPathAndFragment(href)
-			_, inTOC := tocPaths[path]
+		// Now process all spine items
+		var prev *utils.DItem[TOCValue]
+		for _, spineItem := range spine {
+			if item, ok := manifestItems[spineItem.IDRef]; ok {
+				// Get the href from the manifest item
+				href := item.Href
 
-			// Get TOC value from the tempTOC if available
-			var title string
-			var level int
-			var isDir bool
+				// See if this path is in the official TOC
+				path, fragment := splitPathAndFragment(href)
+				_, inTOC := tocPaths[path]
 
-			if tocValue, exists := pathToTOC[path]; exists {
-				title = tocValue.Title
-				level = tocValue.Level
-				isDir = tocValue.IsDir
-			} else {
-				// Use ID as title if not in TOC
-				title = spineItem.IDRef
-				level = 0
-				isDir = false
+				// If we have a TOC and this path is in it, add the TOC entry
+				var found bool
+				if existingTOC != nil {
+					for _, tocItem := range existingTOC.Slice {
+						if tocItem.Path == path {
+							// Use the existing TOC entry
+							newNode := e.TOC.Add(tocItem, prev)
+							prev = newNode
+							found = true
+							break
+						}
+					}
+				}
+
+				// If we didn't find an existing entry, create a new one
+				if !found {
+					// Get TOC value from the tempTOC if available
+					var title string
+					var level int
+					var isDir bool
+
+					if tocValue, exists := pathToTOC[path]; exists {
+						title = tocValue.Title
+						level = tocValue.Level
+						isDir = tocValue.IsDir
+					} else {
+						// Use ID as title if not in TOC
+						title = spineItem.IDRef
+						level = 0
+						isDir = false
+					}
+
+					// Create TOC entry
+					newItem := TOCValue{
+						ID:       uuid.New().String(),
+						Title:    title,
+						Path:     path,
+						Fragment: fragment,
+						Level:    level,
+						IsDir:    isDir,
+						ParentID: "",
+						IsShadow: !inTOC, // Mark as shadow if not in the official TOC
+					}
+
+					newNode := e.TOC.Add(newItem, prev)
+					prev = newNode
+				}
 			}
-
-			// Create TOC entry
-			newItem := TOCValue{
-				ID:       uuid.New().String(),
-				Title:    title,
-				Path:     path,
-				Fragment: fragment,
-				Level:    level,
-				IsDir:    isDir,
-				ParentID: "",
-				IsShadow: !inTOC, // Mark as shadow if not in the official TOC
-			}
-
-			newNode := e.TOC.Add(newItem, prev)
-			prev = newNode
 		}
 	}
 
 	return nil
+}
+
+// countNCXNodes counts the total number of nodes in an NCX TOC, including nested ones
+func countNCXNodes(navPoints *[]NavPoint) int {
+	count := len(*navPoints)
+	for _, navPoint := range *navPoints {
+		if len(navPoint.NavPoints) > 0 {
+			count += countNCXNodes(&navPoint.NavPoints)
+		}
+	}
+	return count
 }
 
 // collectNavPointPaths recursively collects paths from NavPoints
