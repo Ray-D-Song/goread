@@ -453,6 +453,7 @@ func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
 	}
 
 	tocValue := e.TOC.Slice[index]
+	nextTocValue := e.TOC.Slice[index+1]
 	// Remove "./" prefix if present
 	chapterPath := tocValue.Path
 	if strings.HasPrefix(chapterPath, "./") {
@@ -518,8 +519,15 @@ func (e *Epub) GetChapterContents(index int) (*ChapterContent, error) {
 	}
 
 	parser := parser.NewHTMLParser()
-	if err := parser.Parse(string(content), tocValue.Fragment, ""); err != nil {
-		return nil, err
+	// automatically get the next chapter's fragment
+	if tocValue.Path == nextTocValue.Path {
+		if err := parser.Parse(string(content), tocValue.Fragment, nextTocValue.Fragment); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := parser.Parse(string(content), tocValue.Fragment, ""); err != nil {
+			return nil, err
+		}
 	}
 
 	return &ChapterContent{
