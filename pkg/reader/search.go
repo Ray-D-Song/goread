@@ -188,19 +188,25 @@ func (r *Reader) highlightSearchResults(re *regexp.Regexp, focusedLineIndex int)
 	}
 }
 
-// clearSearchHighlights clears all search highlights from the text
+// clearSearchHighlights clears only search highlights from the text while preserving code highlighting
 func (r *Reader) clearSearchHighlights() {
-	// Get the current text without color codes
-	text := r.UI.TextArea.GetText(true)
-	lines := strings.Split(text, "\n")
+	// Get the current chapter content without any highlights
+	index := r.CurrentChapter
+	chapterContent, err := r.Book.GetChapterContents(index)
+	if err != nil {
+		r.UI.SetStatus(fmt.Sprintf("Error reading chapter: %v", err))
+		return
+	}
 
 	// Clear the text area
 	r.UI.TextArea.Clear()
 
-	// Write the lines back without highlights
-	for _, line := range lines {
-		fmt.Fprintln(r.UI.TextArea, line)
-	}
+	// Write the original text back (this will have code highlighting but no search highlighting)
+	fmt.Fprintln(r.UI.TextArea, chapterContent.Text)
+
+	// Restore the scroll position
+	row, _ := r.UI.TextArea.GetScrollOffset()
+	r.UI.TextArea.ScrollTo(row, 0)
 
 	r.UI.SetStatus("Search cleared")
 }
