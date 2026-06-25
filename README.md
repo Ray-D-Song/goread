@@ -61,6 +61,34 @@ Metadata         : m
 Toggle Color     : c
 ```
 
+### Installation
+
+Install the latest release binary to your user directory:
+
+**Linux / macOS** (`~/.local/bin`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.sh | bash
+```
+
+**Windows** (`%LOCALAPPDATA%\goread\bin`):
+
+```powershell
+irm https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.ps1 | iex
+```
+
+You can customize the install location with `INSTALL_DIR`:
+
+```bash
+INSTALL_DIR="$HOME/bin" curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.sh | bash
+```
+
+```powershell
+$env:INSTALL_DIR = "$env:USERPROFILE\bin"; irm https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.ps1 | iex
+```
+
+Scripts are also available in [scripts/](./scripts/).
+
 ### Dependencies
 
 - Go 1.16 or higher

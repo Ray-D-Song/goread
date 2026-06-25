@@ -59,6 +59,34 @@ goread NUMBER      从历史记录中读取编号为 NUMBER 的文件
 切换配色方案     : c
 ```
 
+### 安装
+
+将最新发布版本安装到用户目录：
+
+**Linux / macOS**（`~/.local/bin`）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.sh | bash
+```
+
+**Windows**（`%LOCALAPPDATA%\goread\bin`）：
+
+```powershell
+irm https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.ps1 | iex
+```
+
+可通过 `INSTALL_DIR` 自定义安装路径：
+
+```bash
+INSTALL_DIR="$HOME/bin" curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.sh | bash
+```
+
+```powershell
+$env:INSTALL_DIR = "$env:USERPROFILE\bin"; irm https://raw.githubusercontent.com/Ray-D-Song/goread/main/scripts/install.ps1 | iex
+```
+
+脚本源码见 [scripts/](../scripts/)。
+
 ### 依赖
 
 - Go 1.16 或更高版本
