@@ -15,11 +15,11 @@ import (
 type ColorScheme int
 
 const (
-	// DefaultColorScheme is the default color scheme
+	// DefaultColorScheme uses VS Code Dark+ colors.
 	DefaultColorScheme ColorScheme = iota
-	// DarkColorScheme is the dark color scheme
+	// DarkColorScheme uses the classic green slate theme.
 	DarkColorScheme
-	// LightColorScheme is the light color scheme
+	// LightColorScheme uses VS Code Light+ colors.
 	LightColorScheme
 )
 
@@ -137,29 +137,13 @@ func (ui *UI) SetColorScheme(scheme ColorScheme) {
 
 	ui.StatusBar.SetBackgroundColor(tcell.ColorDeepSkyBlue)
 	ui.StatusBar.SetTextColor(tcell.ColorWhite)
-	switch scheme {
-	case DefaultColorScheme:
-		ui.Container.SetBackgroundColor(tcell.ColorDefault)
-		ui.Horizontal.SetBackgroundColor(tcell.ColorDefault)
-		ui.LeftPanel.SetBackgroundColor(tcell.ColorDefault)
-		ui.RightPanel.SetBackgroundColor(tcell.ColorDefault)
-		ui.TextArea.SetBackgroundColor(tcell.ColorDefault)
-		ui.TextArea.SetTextColor(tcell.ColorDefault)
-	case DarkColorScheme:
-		ui.Container.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.Horizontal.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.LeftPanel.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.RightPanel.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.TextArea.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		ui.TextArea.SetTextColor(tcell.ColorWhite)
-	case LightColorScheme:
-		ui.Container.SetBackgroundColor(tcell.ColorWhite)
-		ui.Horizontal.SetBackgroundColor(tcell.ColorWhite)
-		ui.LeftPanel.SetBackgroundColor(tcell.ColorWhite)
-		ui.RightPanel.SetBackgroundColor(tcell.ColorWhite)
-		ui.TextArea.SetBackgroundColor(tcell.ColorWhite)
-		ui.TextArea.SetTextColor(tcell.ColorBlack)
-	}
+	bg, fg := themeColors(scheme)
+	ui.Container.SetBackgroundColor(bg)
+	ui.Horizontal.SetBackgroundColor(bg)
+	ui.LeftPanel.SetBackgroundColor(bg)
+	ui.RightPanel.SetBackgroundColor(bg)
+	ui.TextArea.SetBackgroundColor(bg)
+	ui.TextArea.SetTextColor(fg)
 }
 
 // CycleColorScheme cycles through the color schemes

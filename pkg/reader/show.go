@@ -54,20 +54,9 @@ func (r *Reader) showMetadata() {
 func (r *Reader) showTOC(index int) {
 	root := tview.NewTreeNode("TOC")
 	tree := tview.NewTreeView()
-	switch r.UI.ColorScheme {
-	case ui.DefaultColorScheme:
-		tree.SetBackgroundColor(tcell.ColorDefault)
-		tree.SetGraphicsColor(tcell.ColorDefault)
-		tree.SetTitleColor(tcell.ColorDefault)
-	case ui.DarkColorScheme:
-		tree.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		tree.SetGraphicsColor(tcell.ColorWhite)
-		tree.SetTitleColor(tcell.ColorWhite)
-	case ui.LightColorScheme:
-		tree.SetBackgroundColor(tcell.ColorWhite)
-		tree.SetGraphicsColor(tcell.ColorBlack)
-		tree.SetTitleColor(tcell.ColorBlack)
-	}
+	tree.SetBackgroundColor(ui.BackgroundColor(r.UI.ColorScheme))
+	tree.SetGraphicsColor(ui.GraphicsColor(r.UI.ColorScheme))
+	tree.SetTitleColor(ui.ForegroundColor(r.UI.ColorScheme))
 	tree.SetRoot(root)
 	tree.SetCurrentNode(root)
 
@@ -104,17 +93,9 @@ func (r *Reader) showTOC(index int) {
 			node.SetReference(item)
 			node.SetSelectable(true)
 			node.SetExpanded(false)
-			switch r.UI.ColorScheme {
-			case ui.DefaultColorScheme:
-				node.SetTextStyle(tcell.StyleDefault)
-				node.SetSelectedTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkCyan))
-			case ui.DarkColorScheme:
-				node.SetTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkSlateGray))
-				node.SetSelectedTextStyle(tcell.StyleDefault.Background(tcell.ColorDarkBlue))
-			case ui.LightColorScheme:
-				node.SetTextStyle(tcell.StyleDefault.Background(tcell.ColorWhite))
-				node.SetSelectedTextStyle(tcell.StyleDefault.Background(tcell.ColorLightBlue))
-			}
+			bg := ui.BackgroundColor(r.UI.ColorScheme)
+			node.SetTextStyle(tcell.StyleDefault.Background(bg).Foreground(ui.ForegroundColor(r.UI.ColorScheme)))
+			node.SetSelectedTextStyle(tcell.StyleDefault.Background(ui.SelectionColor(r.UI.ColorScheme)).Foreground(ui.ForegroundColor(r.UI.ColorScheme)))
 			target.AddChild(node)
 			nodeMap[item.ID] = node
 		}

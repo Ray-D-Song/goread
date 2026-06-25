@@ -71,6 +71,7 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 
 	r.UI.ReadChapter = r.readChapter
 	parser.SetHighlightTheme(parser.HighlightTheme(r.UI.ColorScheme))
+	parser.SetTextResetHex(ui.ForegroundHex(r.UI.ColorScheme))
 	// First load the regular chapter
 	err := r.readChapter(index, pctg)
 	if err != nil {
@@ -182,6 +183,7 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				}
 				r.UI.CycleColorScheme()
 				parser.SetHighlightTheme(parser.HighlightTheme(r.UI.ColorScheme))
+				parser.SetTextResetHex(ui.ForegroundHex(r.UI.ColorScheme))
 				r.readChapter(r.CurrentChapter, currentPctg)
 				return nil
 			case 'C':

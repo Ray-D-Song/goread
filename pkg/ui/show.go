@@ -29,20 +29,13 @@ func (ui *UI) ShowMetadata(metadata [][]string) error {
 				SetAlign(tview.AlignLeft).
 				SetExpansion(1))
 			table.SetCell(i, 1, tview.NewTableCell(item[1]).
-				SetTextColor(tcell.ColorWhite).
+				SetTextColor(ForegroundColor(ui.ColorScheme)).
 				SetAlign(tview.AlignLeft).
 				SetExpansion(2))
 		}
 	}
 
-	switch ui.ColorScheme {
-	case DefaultColorScheme:
-		table.SetBackgroundColor(tcell.ColorDefault)
-	case DarkColorScheme:
-		table.SetBackgroundColor(tcell.ColorDarkSlateGray)
-	case LightColorScheme:
-		table.SetBackgroundColor(tcell.ColorWhite)
-	}
+	table.SetBackgroundColor(BackgroundColor(ui.ColorScheme))
 
 	resetContent := ui.SetTempContent(table)
 	var resetCapture func()
@@ -69,14 +62,7 @@ func (ui *UI) ShowMetadata(metadata [][]string) error {
 				return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
 			case 'c':
 				ui.CycleColorScheme()
-				switch ui.ColorScheme {
-				case DefaultColorScheme:
-					table.SetBackgroundColor(tcell.ColorDefault)
-				case DarkColorScheme:
-					table.SetBackgroundColor(tcell.ColorDarkSlateGray)
-				case LightColorScheme:
-					table.SetBackgroundColor(tcell.ColorWhite)
-				}
+				table.SetBackgroundColor(BackgroundColor(ui.ColorScheme))
 				return nil
 			}
 		default:
@@ -121,17 +107,8 @@ Press Esc or Enter to close
 		SetRegions(true).
 		SetWordWrap(true)
 
-	switch ui.ColorScheme {
-	case DefaultColorScheme:
-		helpContent.SetBackgroundColor(tcell.ColorDefault)
-		helpContent.SetTextColor(tcell.ColorDefault)
-	case DarkColorScheme:
-		helpContent.SetBackgroundColor(tcell.ColorDarkSlateGray)
-		helpContent.SetTextColor(tcell.ColorWhite)
-	case LightColorScheme:
-		helpContent.SetBackgroundColor(tcell.ColorWhite)
-		helpContent.SetTextColor(tcell.ColorBlack)
-	}
+	helpContent.SetBackgroundColor(BackgroundColor(ui.ColorScheme))
+	helpContent.SetTextColor(ForegroundColor(ui.ColorScheme))
 
 	resetContent := ui.SetTempContent(helpContent)
 
@@ -167,17 +144,8 @@ Press Esc or Enter to close
 				return nil
 			case 'c':
 				ui.CycleColorScheme()
-				switch ui.ColorScheme {
-				case DefaultColorScheme:
-					helpContent.SetBackgroundColor(tcell.ColorDefault)
-					helpContent.SetTextColor(tcell.ColorDefault)
-				case DarkColorScheme:
-					helpContent.SetBackgroundColor(tcell.ColorDarkSlateGray)
-					helpContent.SetTextColor(tcell.ColorWhite)
-				case LightColorScheme:
-					helpContent.SetBackgroundColor(tcell.ColorWhite)
-					helpContent.SetTextColor(tcell.ColorBlack)
-				}
+				helpContent.SetBackgroundColor(BackgroundColor(ui.ColorScheme))
+				helpContent.SetTextColor(ForegroundColor(ui.ColorScheme))
 				return nil
 			}
 		default:

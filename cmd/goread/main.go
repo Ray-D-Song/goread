@@ -8,6 +8,7 @@ import (
 
 	"github.com/ray-d-song/goread/pkg/config"
 	"github.com/ray-d-song/goread/pkg/epub"
+	"github.com/ray-d-song/goread/pkg/parser"
 	"github.com/ray-d-song/goread/pkg/reader"
 	"github.com/ray-d-song/goread/pkg/utils"
 )
@@ -123,6 +124,14 @@ func main() {
 	// Set the last read file
 	cfg.SetLastRead(filePath)
 	cfg.Save()
+
+	// Prefer 24-bit color when available for consistent syntax highlighting.
+	utils.EnsureTruecolor()
+	if utils.SupportsTruecolor() {
+		parser.SetColorRenderMode(parser.ColorRenderTrueColor)
+	} else {
+		parser.SetColorRenderMode(parser.ColorRenderNamed)
+	}
 
 	// Start the reader
 	reader := reader.NewReader(book, cfg, filePath)
