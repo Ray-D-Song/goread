@@ -9,3 +9,6 @@ bin/
 toc.ncx
 release
 content.opf
+
+.DS_store
+books/

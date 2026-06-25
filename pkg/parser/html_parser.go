@@ -18,9 +18,10 @@ type HTMLParser struct {
 	isHead     bool
 	isInde     bool
 	isBull     bool
-	isPref     bool
-	isCode     bool // Flag indicating if we're inside a code block
-	isHidden   bool
+	isPref         bool
+	isCode         bool // Flag indicating if we're inside a code block
+	isSnippetBlock bool // Packt-style <p class="snippet code|shell"> blocks
+	isHidden       bool
 	headIDs    map[int]bool
 	indeIDs    map[int]bool
 	bullIDs    map[int]bool
@@ -86,7 +87,7 @@ func (p *HTMLParser) handleText(data string) {
 	}
 
 	// Process the text
-	if p.text[len(p.text)-1] == "" {
+	if p.text[len(p.text)-1] == "" && !p.isPref {
 		data = strings.TrimLeftFunc(data, unicode.IsSpace)
 	}
 

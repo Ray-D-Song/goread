@@ -25,6 +25,14 @@ func (p *HTMLParser) handleStartTag(n *html.Node) {
 		p.isPref = true
 		// For all pre tags, we'll treat them as code blocks
 		p.isCode = true
+	} else if tag == "p" && hasClasses(n, "snippet", "code") {
+		// Packt EPUB code frames use <p class="snippet code"> instead of <pre>
+		p.isPref = true
+		p.isCode = true
+		p.isSnippetBlock = true
+	} else if tag == "p" && hasClasses(n, "snippet", "shell") {
+		p.isPref = true
+		p.isSnippetBlock = true
 	} else if tag == "code" {
 		// If already inside a pre tag, this is a code block
 		if p.isPref {
@@ -75,6 +83,11 @@ func (p *HTMLParser) handleEndTag(n *html.Node) {
 		p.isHead = false
 	} else if tag == "p" || tag == "div" {
 		p.text = append(p.text, "")
+		if p.isSnippetBlock {
+			p.isPref = false
+			p.isCode = false
+			p.isSnippetBlock = false
+		}
 	} else if tag == "script" || tag == "style" || tag == "head" {
 		p.isHidden = false
 	} else if tag == "q" || tag == "dt" || tag == "dd" || tag == "blockquote" {

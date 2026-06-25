@@ -1,9 +1,16 @@
-.PHONY: build clean windows linux macos all prepare release help
+INSTALL_DIR ?= $(HOME)/.local/bin
+
+.PHONY: build install clean windows linux macos all prepare release help
 
 .DEFAULT_GOAL := help
 
 build:
 	go build -o goread ./cmd/goread
+
+install: build
+	mkdir -p $(INSTALL_DIR)
+	install -m 755 goread $(INSTALL_DIR)/goread
+	@echo "Installed goread to $(INSTALL_DIR)/goread"
 
 all: windows linux macos
 
@@ -32,6 +39,7 @@ help:
 	@echo "Usage: make [target]"
 	@echo "Targets:"
 	@echo "  build    - Build the binary for the current platform"
+	@echo "  install  - Build and install goread to $(INSTALL_DIR)"
 	@echo "  windows  - Build the binary for Windows"
 	@echo "  linux    - Build the binary for Linux"
 	@echo "  macos    - Build the binary for macOS"
