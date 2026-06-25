@@ -70,6 +70,7 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 	}
 
 	r.UI.ReadChapter = r.readChapter
+	parser.SetHighlightTheme(parser.HighlightTheme(r.UI.ColorScheme))
 	// First load the regular chapter
 	err := r.readChapter(index, pctg)
 	if err != nil {
@@ -172,7 +173,16 @@ func (r *Reader) Run(index int, width int, pos int, pctg float64) {
 				r.decreaseWidth()
 				return nil
 			case 'c':
+				row, _ := r.UI.TextArea.GetScrollOffset()
+				text := r.UI.TextArea.GetText(false)
+				lines := strings.Split(text, "\n")
+				currentPctg := float64(0)
+				if len(lines) > 0 {
+					currentPctg = float64(row) / float64(len(lines))
+				}
 				r.UI.CycleColorScheme()
+				parser.SetHighlightTheme(parser.HighlightTheme(r.UI.ColorScheme))
+				r.readChapter(r.CurrentChapter, currentPctg)
 				return nil
 			case 'C':
 				r.UI.SetStatus("All caches cleared")

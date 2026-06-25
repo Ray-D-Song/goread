@@ -6,6 +6,7 @@ import (
 )
 
 func TestSnippetCodeHighlighting(t *testing.T) {
+	SetHighlightTheme(HighlightLight)
 	html := `<p class="snippet code">int main() { return 0; }</p>`
 	p := NewHTMLParser()
 	if err := p.Parse(html, "", ""); err != nil {
@@ -53,6 +54,7 @@ func TestSnippetShellPreservesFormattingWithoutHighlighting(t *testing.T) {
 }
 
 func TestPrefaceSnippetCodeFromBook(t *testing.T) {
+	SetHighlightTheme(HighlightLight)
 	html := strings.Join([]string{
 		`<p class="snippet code">#include &lt;stdio.h&gt;</p>`,
 		`<p class="snippet code">  if (ret) {</p>`,
@@ -64,7 +66,7 @@ func TestPrefaceSnippetCodeFromBook(t *testing.T) {
 	}
 
 	lines := p.GetLines()
-	if !strings.Contains(lines[0], "[#00FF00]#include") {
+	if !strings.Contains(lines[0], "[#795E26]#include") {
 		t.Fatalf("expected highlighted include line, got %q", lines[0])
 	}
 	if !strings.HasPrefix(lines[1], "  [#") {

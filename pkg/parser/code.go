@@ -65,39 +65,36 @@ func tokenizeCode(code string) []string {
 
 // colorizeToken applies color to a token based on its type
 func colorizeToken(token string) string {
+	palette := currentPalette()
+
 	// Check for strings (double quotes, single quotes, backticks)
 	if (strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"")) ||
 		(strings.HasPrefix(token, "'") && strings.HasSuffix(token, "'")) ||
 		(strings.HasPrefix(token, "`") && strings.HasSuffix(token, "`")) {
-		return "[#FFFF00]" + token + "[-]"
+		return colorTag(palette.string, token)
 	}
 
-	// Check for comments
-	if strings.HasPrefix(token, "//") || strings.HasPrefix(token, "#") || strings.HasPrefix(token, "--") {
-		return "[#00FF00]" + token + "[-]"
+	// Check for line comments
+	if strings.HasPrefix(token, "//") || strings.HasPrefix(token, "--") {
+		return colorTag(palette.comment, token)
+	}
+
+	// Preprocessor directives (#include, #define, ...) and shell comments (# ...)
+	if strings.HasPrefix(token, "#") {
+		return colorTag(palette.preprocessor, token)
 	}
 
 	// Check for numbers
 	if regexp.MustCompile(`^\d+(\.\d+)?$`).MatchString(token) {
-		return "[#FF8800]" + token + "[-]"
+		return colorTag(palette.number, token)
 	}
 
-	// Check for SQL keywords (case insensitive)
-	if isSQLKeyword(token) {
-		return "[#FF00AA]" + token + "[-]"
-	}
-
-	// Check for keywords
 	if isDataType(token) {
-		return "[#00FFFF]" + token + "[-]"
+		return colorTag(palette.typeKeyword, token)
 	}
 
-	if isControlFlow(token) {
-		return "[#FF00FF]" + token + "[-]"
-	}
-
-	if isOtherKeyword(token) {
-		return "[#0088FF]" + token + "[-]"
+	if isControlFlow(token) || isOtherKeyword(token) || isSQLKeyword(token) {
+		return colorTag(palette.keyword, token)
 	}
 
 	// Return the token as is if it doesn't match any category
